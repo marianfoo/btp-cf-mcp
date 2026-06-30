@@ -1,0 +1,40 @@
+# Multi-Target Application descriptor — one-command deploy:
+#   mbt build && cf deploy mta_archives/btp-cf-mcp_0.0.1.mtar -e mta-config.mtaext
+# IAS-first config is env-var based (no bound services). Only safe, non-secret defaults live here;
+# all deployment-specific values + secrets + the route come from an mtaext
+# (copy mta-config.mtaext.example -> mta-config.mtaext, which is gitignored).
+_schema-version: "3.2"
+ID: btp-cf-mcp
+version: 0.0.1
+
+modules:
+  - name: btp-cf-mcp
+    type: nodejs
+    path: .
+    parameters:
+      memory: 256M
+      disk-quota: 512M
+      health-check-type: http
+      health-check-http-endpoint: /health
+      command: node dist/index.js
+      buildpack: nodejs_buildpack
+    build-parameters:
+      builder: custom
+      commands:
+        - npm ci
+        - npm run build
+      # NOTE: MBT packages `path: .` and this ignore list matches DIRECTORIES only (not file globs),
+      # and .gitignore/.cfignore do NOT apply. Therefore a SECRET FILE placed at the repo root (e.g. a
+      # filled mta-config.mtaext or .env) WOULD be embedded in the deploy artifact. Keep the filled
+      # mtaext OUTSIDE the repo and pass it with `cf deploy -e <path>` — see mta-config.mtaext.example.
+      ignore:
+        - node_modules/
+        - test/
+        - .git/
+        - mta_archives/
+        - ".mta/"
+    properties:
+      NODE_ENV: production
+      # Safety ceiling — read-only by default. The IAS-first vars (IAS_*, SEALING_SECRET,
+      # BTP_GA_SUBDOMAIN, CF_*, PUBLIC_URL) and the route are supplied by the mtaext.
+      ALLOW_WRITES: "false"

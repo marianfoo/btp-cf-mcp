@@ -1,0 +1,18 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+service-key*.json
+*-service-key.json
+cookies.txt
+.cf/
+
+# MTA deployment extension (holds secrets)
+*.mtaext
+!*.mtaext.example
+mta_archives/
+.mta/

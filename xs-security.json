@@ -1,0 +1,24 @@
+{
+  "xsappname": "btp-cf-mcp",
+  "tenant-mode": "dedicated",
+  "description": "BTP/CF management MCP server (PoC)",
+  "scopes": [
+    { "name": "$XSAPPNAME.read", "description": "Read BTP/CF resources" },
+    { "name": "$XSAPPNAME.write", "description": "Mutate BTP/CF resources" },
+    { "name": "$XSAPPNAME.admin", "description": "Account administration" }
+  ],
+  "role-templates": [
+    { "name": "Viewer", "description": "Read-only", "scope-references": ["$XSAPPNAME.read"] },
+    { "name": "Developer", "description": "Read + write", "scope-references": ["$XSAPPNAME.read", "$XSAPPNAME.write"] },
+    {
+      "name": "Administrator",
+      "description": "All",
+      "scope-references": ["$XSAPPNAME.read", "$XSAPPNAME.write", "$XSAPPNAME.admin"]
+    }
+  ],
+  "oauth2-configuration": {
+    "token-validity": 3600,
+    "refresh-token-validity": 2592000,
+    "redirect-uris": ["https://btp-cf-mcp-dev.cfapps.us10-001.hana.ondemand.com/**", "http://localhost:*/**"]
+  }
+}

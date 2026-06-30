@@ -1,0 +1,32 @@
+# Deployment-specific MTA extension — holds SECRETS.
+# ⚠️ Copy this OUTSIDE the repo (MBT would package a copy left at the repo root into the deploy
+#    artifact — its ignore list is directory-only). e.g.:
+#      mkdir -p ~/.config/btp-cf-mcp && cp mta-config.mtaext.example ~/.config/btp-cf-mcp/mta-config.mtaext
+# Fill it in, then:
+#      mbt build && cf deploy mta_archives/btp-cf-mcp_0.0.1.mtar -e ~/.config/btp-cf-mcp/mta-config.mtaext
+_schema-version: "3.2"
+ID: btp-cf-mcp.config
+extends: btp-cf-mcp
+
+modules:
+  - name: btp-cf-mcp
+    parameters:
+      routes:
+        - route: <your-route>.cfapps.<region>.hana.ondemand.com
+    properties:
+      # --- IAS-first per-user (all required together) ---
+      PUBLIC_URL: https://<your-route>.cfapps.<region>.hana.ondemand.com
+      IAS_ISSUER: https://<tenant>.accounts.ondemand.com
+      IAS_CLIENT_ID: <ias-oidc-app-client-id>
+      IAS_CLIENT_SECRET: <IAS-OIDC-APP-SECRET>
+      CF_PLATFORM_CLIENT_ID: <cf-platform-app-client-id>
+      CF_UAA_URL: https://uaa.cf.<region>.hana.ondemand.com/oauth/token
+      CF_API: https://api.cf.<region>.hana.ondemand.com
+      BTP_GA_SUBDOMAIN: <global-account-subdomain>
+      SEALING_SECRET: <32-BYTE-RANDOM  e.g. openssl rand -hex 32>
+      # SEALING_SECRET_PREVIOUS: <old secret, only during a rotation window>
+      # --- Optional: shared read-only technical user (Strategy B) ---
+      # BTP_TECH_USER: <mcp-readonly@yourdomain>
+      # BTP_TECH_PASSWORD: <TECH-USER-PASSWORD>
+      # --- Optional: api-key fallback ---
+      # API_KEYS: <api-key>:viewer

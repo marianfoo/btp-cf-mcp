@@ -1,0 +1,61 @@
+{
+  "name": "btp-cf-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "PoC MCP server for SAP BTP/Cloud Foundry management — arc-1 auth model, read-only by default.",
+  "license": "MIT",
+  "author": "Marian Zeis",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marianfoo/btp-cf-mcp.git"
+  },
+  "homepage": "https://github.com/marianfoo/btp-cf-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/marianfoo/btp-cf-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "sap",
+    "btp",
+    "cloud-foundry",
+    "cloud-controller"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tests.json",
+    "prepare": "husky || true"
+  },
+  "lint-staged": {
+    "*.{ts,js,json}": "biome check --write --no-errors-on-unmatched"
+  },
+  "dependencies": {
+    "@arc-mcp/xsuaa-auth": "^0.1.4",
+    "@modelcontextprotocol/sdk": "^1.18.2",
+    "express": "^5.0.1",
+    "jose": "^6.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.0"
+  }
+}

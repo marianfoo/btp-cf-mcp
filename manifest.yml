@@ -1,0 +1,22 @@
+---
+applications:
+  - name: btp-cf-mcp
+    memory: 256M
+    disk_quota: 512M
+    instances: 1
+    buildpacks:
+      - nodejs_buildpack
+    command: node dist/index.js
+    health-check-type: http
+    health-check-http-endpoint: /health
+    # No explicit route → CF assigns <app-name>.<your-cf-domain>. Pin one with `routes:` if you need a stable URL.
+    env:
+      NODE_ENV: production
+      # Safety ceiling — read-only by default. Flip ALLOW_WRITES to enable mutations.
+      ALLOW_WRITES: "false"
+    # Set out-of-band (never commit secrets):
+    #   cf set-env btp-cf-mcp PUBLIC_URL     https://<your-route>          # advertised OAuth-metadata URL
+    #   cf set-env btp-cf-mcp API_KEYS       <key>:admin                   # and/or the IAS-first vars (.env.example)
+    #   cf set-env btp-cf-mcp CIS_SERVICE_KEY '<key>'   /  CF_REFRESH_TOKEN <token>  +  CF_UAA_URL <url>
+    #   cf set-env btp-cf-mcp ALLOWED_SUBACCOUNTS <guid,guid>              # once writes are enabled
+    #   cf bind-service btp-cf-mcp btp-cf-mcp-xsuaa                        # if using the XSUAA path
