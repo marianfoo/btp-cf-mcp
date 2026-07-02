@@ -26,7 +26,7 @@ multi-dimensional review (2026-07). Effort: **S** ≈ hours, **M** ≈ days, **L
 
 | # | Item | Why it matters | Effort |
 |---|------|----------------|--------|
-| 5 | **More reads**: recent app logs, tasks, current scale, service keys/bindings, role-collection membership, marketplace/plan catalog, org/space quotas | Common ops questions are unanswerable today. Each is a ~10-line `ActionDef`. Keep `app_env` excluded (credential leak). | M |
+| 5 | **More reads** — *largely shipped 2026-07-02*: app_logs, app_routes/features/current_droplet, service_bindings, service_instance_parameters, audit_events, org_usage_summary/quota (CF) + role_collections/trust_configs/security_settings/service_instances/offerings/plans (BTP). **Remaining:** `users`/`user_detail` (need the `--of-idp` origin CLI-server param key verified live — without it `security/user` defaults to `sap.default` and misses custom-IdP shadow users); `tasks`; cursor pagination (#6). Secret-bearing endpoints stay excluded (app_env, manifest, binding details/credentials, api-credential). | S |
 | 6 | **Cursor pagination** across CF list reads | Reads cap at 50 and only signal truncation. Add an optional `page`/cursor param threaded through the `run()` closures. | S |
 | 7 | **Optional stdio / local transport** | `index.ts` only starts HTTP; most desktop MCP clients attach over stdio. Add a `TRANSPORT=stdio` path reusing `buildServer()` with an env-token identity and no inbound OAuth — a 2-minute on-ramp. | M |
 

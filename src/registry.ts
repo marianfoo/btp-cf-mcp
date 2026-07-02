@@ -476,16 +476,8 @@ const BTP: ActionDef[] = [
     summary: "'role_collections' = the subaccount's role collections + their roles (RBAC audit)",
     run: (c) => c.btp('security/role-collection', 'list', { subaccount: c.sub() }),
   },
-  {
-    tool: 'BTPInspect',
-    action: 'users',
-    scope: 'read',
-    op: 'R',
-    backend: 'btp',
-    params: ['subaccount'],
-    summary: "'users' = users known to the subaccount (identities/emails; no secrets)",
-    run: (c) => c.btp('security/user', 'list', { subaccount: c.sub() }),
-  },
+  // NOTE: 'users' (security/user list) deferred — without the --of-idp origin it defaults to sap.default and
+  // misses the custom-IdP shadow users (codex P2). Needs the CLI-server origin param key verified live. (ROADMAP)
   {
     tool: 'BTPInspect',
     action: 'trust_configs',
