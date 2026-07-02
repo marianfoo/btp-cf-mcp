@@ -30,7 +30,8 @@ export interface VisibilityCtx {
 }
 
 const PARAM_DESC: Record<string, string> = {
-  guid: 'App GUID — required for the actions that name it. UUID form, e.g. 6064d98a-95e6-400b-8a0e-37dcc14a5f7d.',
+  guid: 'Resource GUID — an APP guid for the app_* actions, an ORG guid for org_usage_summary/org_quota, a SERVICE-INSTANCE guid for service_instance_parameters. UUID form, e.g. 6064d98a-95e6-400b-8a0e-37dcc14a5f7d.',
+  limit: 'Max rows to return (e.g. app_logs line count). Optional; defaults to 100.',
   space: 'Space GUID for write actions — the dimension the write gate checks. UUID form. Must be allowlisted.',
   subaccount:
     "Subaccount GUID. Defaults to the bound/configured subaccount (the CIS key's, or BTP_DEFAULT_SUBACCOUNT); REQUIRED if none is configured. UUID form.",

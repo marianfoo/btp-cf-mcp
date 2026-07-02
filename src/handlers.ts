@@ -85,7 +85,7 @@ function makeCtx(
   args: Record<string, unknown>,
   ga: string | undefined,
   defaultSub: string | undefined,
-  over: Partial<Pick<ActionCtx, 'cf' | 'btp'>>,
+  over: Partial<Pick<ActionCtx, 'cf' | 'logs' | 'btp'>>,
 ): ActionCtx {
   const noBackend = (which: string) => async (): Promise<never> => {
     throw new Error(`${which} backend not available`);
@@ -96,6 +96,7 @@ function makeCtx(
     sub: () => asGuid((args.subaccount as string | undefined) ?? defaultSub, 'subaccount'),
     guid: (field) => asGuid(args[field], field),
     cf: over.cf ?? (noBackend('CF') as ActionCtx['cf']),
+    logs: over.logs ?? (noBackend('CF-logs') as ActionCtx['logs']),
     btp: over.btp ?? (noBackend('BTP') as ActionCtx['btp']),
   };
 }
@@ -127,7 +128,18 @@ async function runCfRead(
       ? new CfClient(config.cfApi, perUserCfProvider(ias.iasCredential, config.ias))
       : clients.cf;
   if (!cf) return fail('CF backend not configured — log in via OAuth, or set CF_API + a CF token.');
-  const ctx = makeCtx(args, config.btpGaSubdomain, defaultSub, { cf: (p) => cf.get(p) });
+  const ctx = makeCtx(args, config.btpGaSubdomain, defaultSub, {
+    cf: (p) => cf.get(p),
+    // log-cache 404 = the app has no recent logs (not an error) → hand back empty envelopes.
+    logs: async (id, limit) => {
+      try {
+        return await cf.getLogs(id, limit);
+      } catch (e) {
+        if (e instanceof BackendError && e.status === 404) return { envelopes: { batch: [] } };
+        throw e;
+      }
+    },
+  });
   return ok(json(await def.run?.(ctx)));
 }
 

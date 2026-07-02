@@ -15,6 +15,7 @@ export interface ActionCtx {
   sub: () => string; // resolved subaccount GUID (throws if none configured/passed)
   guid: (field: string) => string; // validate a GUID-shaped arg
   cf: (path: string) => Promise<unknown>; // Cloud Controller v3 GET
+  logs: (sourceId: string, limit: number) => Promise<unknown>; // CF log-cache (recent app logs; empty envelopes on 404)
   btp: (command: string, action: string, params: Record<string, unknown>) => Promise<unknown>; // btp CLI-server command
 }
 
@@ -45,6 +46,74 @@ async function cfList(c: ActionCtx, path: string): Promise<unknown> {
     return { ...res, _truncated: true, _hint: `Only the first 50 of ${total} shown — refine your query for the rest.` };
   }
   return res;
+}
+
+// Keep only the named keys from an object (used by the projections below to trim large SAP/CF payloads).
+const pick = (o: Record<string, unknown>, keys: string[]): Record<string, unknown> =>
+  Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
+
+// audit_events: keep who/what/when; drop the verbose per-event `data` blob.
+function compactAuditEvents(raw: unknown): unknown {
+  const r = raw as { resources?: Array<Record<string, unknown>> };
+  if (!Array.isArray(r?.resources)) return raw;
+  return {
+    events: r.resources.map((e) => ({
+      type: e.type,
+      actor: (e.actor as { name?: string } | undefined)?.name,
+      target: (e.target as { name?: string; type?: string } | undefined)?.name,
+      target_type: (e.target as { type?: string } | undefined)?.type,
+      space: (e.space as { guid?: string } | undefined)?.guid,
+      created_at: e.created_at,
+    })),
+  };
+}
+
+// app_current_droplet: keep what's deployed; drop execution_metadata (a large base64 blob).
+function compactDroplet(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  return pick(raw as Record<string, unknown>, [
+    'guid',
+    'state',
+    'image',
+    'stack',
+    'buildpacks',
+    'process_types',
+    'created_at',
+    'updated_at',
+    'lifecycle',
+  ]);
+}
+
+// service_instance_parameters is config-only by CF contract, but defensively redact any value whose KEY
+// looks secret, in case a broker echoed a credential into the parameters.
+const SECRET_KEY_RE = /pass|secret|token|key|cert|credential/i;
+function redactSecretKeys(raw: unknown): unknown {
+  if (Array.isArray(raw)) return raw.map(redactSecretKeys);
+  if (raw && typeof raw === 'object') {
+    return Object.fromEntries(
+      Object.entries(raw as Record<string, unknown>).map(([k, v]) =>
+        SECRET_KEY_RE.test(k) ? [k, '<redacted>'] : [k, redactSecretKeys(v)],
+      ),
+    );
+  }
+  return raw;
+}
+
+// app_logs: log-cache returns base64 log payloads + nanosecond timestamps — decode to readable lines.
+function decodeLogs(raw: unknown): unknown {
+  const batch = (raw as { envelopes?: { batch?: Array<Record<string, unknown>> } })?.envelopes?.batch ?? [];
+  return {
+    logs: batch.map((e) => {
+      const log = e.log as { payload?: string; type?: string } | undefined;
+      const ts = Number(e.timestamp);
+      return {
+        time: Number.isFinite(ts) ? new Date(ts / 1e6).toISOString() : undefined,
+        type: log?.type,
+        instance: e.instance_id,
+        message: log?.payload ? Buffer.from(log.payload, 'base64').toString('utf8').replace(/\n$/, '') : '',
+      };
+    }),
+  };
 }
 
 const CF: ActionDef[] = [
@@ -123,7 +192,98 @@ const CF: ActionDef[] = [
       return { processes: procs, instanceStats };
     },
   },
-  // NO 'app_env': /v3/apps/:guid/env leaks VCAP_SERVICES binding credentials to read scope (codex P1).
+  // NO 'app_env' / 'app_manifest' / service-binding 'details' / service 'credentials': all leak cleartext
+  // secrets (VCAP_SERVICES, env vars, binding passwords) to read scope — excluded on purpose (codex P1).
+  {
+    tool: 'CFInspect',
+    action: 'app_logs',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    params: ['guid', 'limit'],
+    summary: "'app_logs' = an app's recent logs (REQUIRES 'guid'; optional 'limit', default 100)",
+    run: async (c) => decodeLogs(await c.logs(c.guid('guid'), Number(c.args.limit) || 100)),
+  },
+  {
+    tool: 'CFInspect',
+    action: 'app_routes',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    params: ['guid'],
+    summary: "'app_routes' = the routes/URLs mapped to an app (REQUIRES 'guid')",
+    run: (c) => cfList(c, `/v3/apps/${c.guid('guid')}/routes?per_page=50`),
+  },
+  {
+    tool: 'CFInspect',
+    action: 'app_features',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    params: ['guid'],
+    summary: "'app_features' = an app's feature toggles (ssh, revisions, …) (REQUIRES 'guid')",
+    run: (c) => c.cf(`/v3/apps/${c.guid('guid')}/features`),
+  },
+  {
+    tool: 'CFInspect',
+    action: 'app_current_droplet',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    params: ['guid'],
+    summary: "'app_current_droplet' = what's deployed right now: image/buildpacks/stack (REQUIRES 'guid')",
+    run: async (c) => compactDroplet(await c.cf(`/v3/apps/${c.guid('guid')}/droplets/current`)),
+  },
+  {
+    tool: 'CFInspect',
+    action: 'service_bindings',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    summary: "'service_bindings' = service keys + app-to-service bindings (metadata only, no credentials)",
+    run: (c) => cfList(c, '/v3/service_credential_bindings?per_page=50'),
+  },
+  {
+    tool: 'CFInspect',
+    action: 'service_instance_parameters',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    params: ['guid'],
+    summary:
+      "'service_instance_parameters' = a service instance's provisioning config (REQUIRES 'guid'; secret-looking keys redacted)",
+    run: async (c) => redactSecretKeys(await c.cf(`/v3/service_instances/${c.guid('guid')}/parameters`)),
+  },
+  {
+    tool: 'CFInspect',
+    action: 'audit_events',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    summary: "'audit_events' = recent CF activity newest-first (who did what: deploy/restart/scale/bind)",
+    run: async (c) => compactAuditEvents(await c.cf('/v3/audit_events?per_page=50&order_by=-created_at')),
+  },
+  {
+    tool: 'CFInspect',
+    action: 'org_usage_summary',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    params: ['guid'],
+    summary: "'org_usage_summary' = an org's live consumption: instances/memory/routes (REQUIRES 'guid' = org GUID)",
+    run: (c) => c.cf(`/v3/organizations/${c.guid('guid')}/usage_summary`),
+  },
+  {
+    tool: 'CFInspect',
+    action: 'org_quota',
+    scope: 'read',
+    op: 'R',
+    backend: 'cf',
+    params: ['guid'],
+    summary: "'org_quota' = the quota (limits) applied to an org (REQUIRES 'guid' = org GUID)",
+    // MUST filter by the org guid — the unfiltered organization_quotas catalog is tens of thousands of rows.
+    run: (c) => c.cf(`/v3/organization_quotas?organization_guids=${c.guid('guid')}`),
+  },
   {
     tool: 'CFApps',
     action: 'restart',
@@ -178,8 +338,6 @@ const PLAN_KEYS = [
 // assignedServices plans carry assignmentInfo = which entity (subaccount) got the plan + how much — the
 // whole point of the assigned view. Keep a compact slice of it (codex P2); drop billing/dates/parent bloat.
 const ASSIGN_KEYS = ['entityId', 'entityType', 'amount', 'entityState', 'unlimitedAmountAssigned'];
-const pick = (o: Record<string, unknown>, keys: string[]): Record<string, unknown> =>
-  Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
 function compactPlan(p: Record<string, unknown>): Record<string, unknown> {
   const out = pick(p, PLAN_KEYS);
   if (Array.isArray(p.assignmentInfo)) {
@@ -214,6 +372,24 @@ function compactSubscriptions(raw: unknown): unknown {
   const strip = (app: Record<string, unknown>): Record<string, unknown> =>
     Object.fromEntries(Object.entries(app).filter(([k]) => !SUB_DROP.includes(k)));
   return { ...r, applications: r.applications.map((a) => strip(a as Record<string, unknown>)) };
+}
+
+// btp Service Manager catalog rows are wide (icon/metadata/broker-catalog/schema blobs). Strip just those
+// known-bloat keys from each item; shape-agnostic (bare array or {items|value|resources:[…]}), else pass through.
+const CATALOG_DROP = ['metadata', 'broker_catalog', 'iconBase64', 'schemas', 'labels'];
+function compactBtpList(raw: unknown): unknown {
+  const stripItem = (o: unknown): unknown =>
+    o && typeof o === 'object' && !Array.isArray(o)
+      ? Object.fromEntries(Object.entries(o as Record<string, unknown>).filter(([k]) => !CATALOG_DROP.includes(k)))
+      : o;
+  if (Array.isArray(raw)) return raw.map(stripItem);
+  if (raw && typeof raw === 'object') {
+    const r = raw as Record<string, unknown>;
+    for (const key of ['items', 'value', 'resources']) {
+      if (Array.isArray(r[key])) return { ...r, [key]: (r[key] as unknown[]).map(stripItem) };
+    }
+  }
+  return raw;
 }
 
 // ─── BTP account (btp CLI server) ────────────────────────────────────────────────────────────────
@@ -289,6 +465,76 @@ const BTP: ActionDef[] = [
       );
       return compactEntitlements(raw);
     },
+  },
+  {
+    tool: 'BTPInspect',
+    action: 'role_collections',
+    scope: 'read',
+    op: 'R',
+    backend: 'btp',
+    params: ['subaccount'],
+    summary: "'role_collections' = the subaccount's role collections + their roles (RBAC audit)",
+    run: (c) => c.btp('security/role-collection', 'list', { subaccount: c.sub() }),
+  },
+  {
+    tool: 'BTPInspect',
+    action: 'users',
+    scope: 'read',
+    op: 'R',
+    backend: 'btp',
+    params: ['subaccount'],
+    summary: "'users' = users known to the subaccount (identities/emails; no secrets)",
+    run: (c) => c.btp('security/user', 'list', { subaccount: c.sub() }),
+  },
+  {
+    tool: 'BTPInspect',
+    action: 'trust_configs',
+    scope: 'read',
+    op: 'R',
+    backend: 'btp',
+    params: ['subaccount'],
+    summary: "'trust_configs' = the subaccount's trusted identity providers (SSO/login config)",
+    run: (c) => c.btp('security/trust', 'list', { subaccount: c.sub() }),
+  },
+  {
+    tool: 'BTPInspect',
+    action: 'security_settings',
+    scope: 'read',
+    op: 'R',
+    backend: 'btp',
+    params: ['subaccount'],
+    summary: "'security_settings' = the subaccount's token policy / default IdP / auth settings",
+    run: (c) => c.btp('security/settings', 'list', { subaccount: c.sub() }),
+  },
+  {
+    tool: 'BTPInspect',
+    action: 'service_instances',
+    scope: 'read',
+    op: 'R',
+    backend: 'btp',
+    params: ['subaccount'],
+    summary: "'service_instances' = Service Manager instances in the subaccount (name/offering/plan/status)",
+    run: async (c) => compactBtpList(await c.btp('services/instance', 'list', { subaccount: c.sub() })),
+  },
+  {
+    tool: 'BTPInspect',
+    action: 'service_offerings',
+    scope: 'read',
+    op: 'R',
+    backend: 'btp',
+    params: ['subaccount'],
+    summary: "'service_offerings' = the subaccount's Service Manager catalog (what can be provisioned)",
+    run: async (c) => compactBtpList(await c.btp('services/offering', 'list', { subaccount: c.sub() })),
+  },
+  {
+    tool: 'BTPInspect',
+    action: 'service_plans',
+    scope: 'read',
+    op: 'R',
+    backend: 'btp',
+    params: ['subaccount'],
+    summary: "'service_plans' = plans available in the subaccount (map entitlements → concrete plans)",
+    run: async (c) => compactBtpList(await c.btp('services/plan', 'list', { subaccount: c.sub() })),
   },
   {
     tool: 'BTPServices',

@@ -53,4 +53,10 @@ export class CfClient {
   async get(path: string): Promise<unknown> {
     return getJson(this.api, path, await this.provider.getToken());
   }
+  // Recent app logs live on the log-cache host (not /v3), same UAA token. SAP CF: api.cf.<region> → log-cache.cf.<region>.
+  async getLogs(sourceId: string, limit: number): Promise<unknown> {
+    const base = this.api.replace('//api.', '//log-cache.');
+    const path = `/api/v1/read/${encodeURIComponent(sourceId)}?limit=${limit}&descending=true&envelope_types=LOG`;
+    return getJson(base, path, await this.provider.getToken());
+  }
 }

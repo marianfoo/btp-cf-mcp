@@ -10,6 +10,7 @@ function ctx(over: Partial<ActionCtx> = {}): ActionCtx {
     sub: () => 'sub-guid',
     guid: (f) => (f === 'guid' ? 'app-g' : SUB),
     cf: async () => ({}),
+    logs: async () => ({}),
     btp: async () => ({}),
     ...over,
   };
@@ -157,5 +158,77 @@ describe('registry (single source)', () => {
     };
     const out = (await getAction('BTPInspect', 'subscriptions')?.run?.(ctx({ btp: async () => raw }))) as any;
     expect(out.applications[0]).toEqual({ appName: 'app1', state: 'SUBSCRIBED' });
+  });
+
+  const cfPath = async (action: string, args: Record<string, unknown> = {}): Promise<string> => {
+    let p = '';
+    const cf = async (x: string): Promise<unknown> => {
+      p = x;
+      return { resources: [] };
+    };
+    await getAction('CFInspect', action)?.run?.(ctx({ args, cf }));
+    return p;
+  };
+
+  it('new CF reads build the right Cloud Controller paths', async () => {
+    expect(await cfPath('app_routes', { guid: 'app-g' })).toBe('/v3/apps/app-g/routes?per_page=50');
+    expect(await cfPath('app_features', { guid: 'app-g' })).toBe('/v3/apps/app-g/features');
+    expect(await cfPath('app_current_droplet', { guid: 'app-g' })).toBe('/v3/apps/app-g/droplets/current');
+    expect(await cfPath('service_instance_parameters', { guid: 'si-g' })).toBe(
+      '/v3/service_instances/app-g/parameters',
+    );
+    expect(await cfPath('org_usage_summary', {})).toBe('/v3/organizations/app-g/usage_summary');
+    expect(await cfPath('org_quota', {})).toBe('/v3/organization_quotas?organization_guids=app-g');
+    expect(await cfPath('audit_events')).toBe('/v3/audit_events?per_page=50&order_by=-created_at');
+  });
+
+  it('app_logs decodes base64 log-cache payloads (and reads the app guid)', async () => {
+    const payload = Buffer.from('boot complete\n', 'utf8').toString('base64');
+    const out = (await getAction('CFInspect', 'app_logs')?.run?.(
+      ctx({
+        args: { guid: 'app-g' },
+        logs: async () => ({
+          envelopes: { batch: [{ timestamp: '1700000000000000000', instance_id: '0', log: { payload, type: 'OUT' } }] },
+        }),
+      }),
+    )) as any;
+    expect(out.logs[0]).toMatchObject({ type: 'OUT', instance: '0', message: 'boot complete' });
+  });
+
+  it('service_instance_parameters redacts secret-looking keys, keeps config', async () => {
+    const out = await getAction('CFInspect', 'service_instance_parameters')?.run?.(
+      ctx({ args: { guid: 'si-g' }, cf: async () => ({ sapsystemname: 'H01', db_password: 'x', apiKey: 'y' }) }),
+    );
+    expect(out).toEqual({ sapsystemname: 'H01', db_password: '<redacted>', apiKey: '<redacted>' });
+  });
+
+  it('new BTP reads call the right btp CLI commands (subaccount-scoped)', async () => {
+    const seen = async (action: string): Promise<unknown> => {
+      let s: unknown;
+      const btp = async (c: string, a: string, p: Record<string, unknown>): Promise<unknown> => {
+        s = { c, a, p };
+        return {};
+      };
+      await getAction('BTPInspect', action)?.run?.(ctx({ btp }));
+      return s;
+    };
+    expect(await seen('role_collections')).toEqual({
+      c: 'security/role-collection',
+      a: 'list',
+      p: { subaccount: 'sub-guid' },
+    });
+    expect(await seen('trust_configs')).toEqual({ c: 'security/trust', a: 'list', p: { subaccount: 'sub-guid' } });
+    expect(await seen('service_offerings')).toEqual({
+      c: 'services/offering',
+      a: 'list',
+      p: { subaccount: 'sub-guid' },
+    });
+  });
+
+  it('compactBtpList strips catalog bloat keys regardless of wrapper', async () => {
+    const out = (await getAction('BTPInspect', 'service_offerings')?.run?.(
+      ctx({ btp: async () => ({ items: [{ name: 'xsuaa', metadata: { big: 1 }, iconBase64: 'x' }] }) }),
+    )) as any;
+    expect(out.items[0]).toEqual({ name: 'xsuaa' });
   });
 });
