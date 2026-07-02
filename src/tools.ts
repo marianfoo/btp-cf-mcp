@@ -24,6 +24,9 @@ export interface ToolDef {
 export interface VisibilityCtx {
   allowWrites: boolean;
   denyActions: string[];
+  // Writes are per-user only (dispatch refuses shared-identity callers) — don't advertise write tools
+  // to a caller whose request carries no IAS credential, or they'd see tools that always fail.
+  perUser: boolean;
   // cf = a CF backend (per-user or shared token); cis = the shared CIS key; btpCli = the per-user/tech
   // btp CLI-server path (the primary BTP backend).
   backends: { cf: boolean; cis: boolean; btpCli: boolean };
@@ -90,7 +93,7 @@ export function allTools(): ToolDef[] {
 
 function actionVisible(a: ActionDef, scopes: string[], ctx: VisibilityCtx): boolean {
   if (!hasScope(scopes, a.scope)) return false;
-  if (a.op !== 'R' && !ctx.allowWrites) return false;
+  if (a.op !== 'R' && (!ctx.allowWrites || !ctx.perUser)) return false;
   if (isDenied(ctx.denyActions, a.tool, a.action)) return false;
   if (a.backend === 'cf') return ctx.backends.cf;
   return ctx.backends.btpCli || (Boolean(a.cisFallback) && ctx.backends.cis); // btp

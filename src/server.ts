@@ -96,6 +96,7 @@ function buildServer(config: AppConfig, clients: Clients): Server {
         WHOAMI_TOOL,
         ...visibleTools(scopes, {
           allowWrites: deriveUserSafety(config.safety, scopes).allowWrites,
+          perUser: hasIas, // writes are per-user only — hide them from api-key/shared-identity callers
           denyActions: config.safety.denyActions,
           backends: {
             cf: Boolean(clients.cf) || (hasIas && Boolean(config.ias)),

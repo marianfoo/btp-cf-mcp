@@ -18,7 +18,12 @@ const base: SafetyConfig = {
   allowedSpaces: ['sp-1'],
   denyActions: [],
 };
-const fullCtx: VisibilityCtx = { allowWrites: true, denyActions: [], backends: { cf: true, cis: true, btpCli: true } };
+const fullCtx: VisibilityCtx = {
+  allowWrites: true,
+  perUser: true,
+  denyActions: [],
+  backends: { cf: true, cis: true, btpCli: true },
+};
 
 describe('scope expansion', () => {
   it('admin implies write + read', () => expect(expandScopes(['admin']).sort()).toEqual(['admin', 'read', 'write']));
@@ -86,6 +91,12 @@ describe('safety-aware tool pruning', () => {
     expect(
       visibleTools(['write'], { ...fullCtx, allowWrites: false }).find((t) => t.name === 'CFApps'),
     ).toBeUndefined());
+  it('hides write tools from shared-identity callers (no IAS credential) — writes are per-user only', () => {
+    const tools = visibleTools(['admin'], { ...fullCtx, perUser: false });
+    expect(tools.find((t) => t.name === 'CFApps')).toBeUndefined();
+    expect(tools.find((t) => t.name === 'BTPServices')).toBeUndefined();
+    expect(tools.find((t) => t.name === 'CFInspect')).toBeDefined(); // reads unaffected
+  });
   it('hides denied actions', () =>
     expect(
       actions(visibleTools(['admin'], { ...fullCtx, denyActions: ['BTPServices.delete_service'] }), 'BTPServices'),
