@@ -127,6 +127,7 @@ that make reads return data, troubleshooting, caveats): [docs/guides/admin-deplo
 ## Documentation
 
 - [docs/guides/admin-deployment.md](docs/guides/admin-deployment.md) — deploy + configure (start here)
+- [docs/guides/connect-mcp-clients.md](docs/guides/connect-mcp-clients.md) — connect Copilot / Claude Desktop / Codex / VS Code / Cursor
 - [docs/guides/per-user-ias-auth-setup.md](docs/guides/per-user-ias-auth-setup.md) — the IAS per-user auth recipe
 - [ROADMAP.md](ROADMAP.md) — what works today vs what's planned · [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup
 - [docs/README.md](docs/README.md) — full docs index · [AGENTS.md](AGENTS.md) — codebase guide for AI agents

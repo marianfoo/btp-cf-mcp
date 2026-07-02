@@ -25,6 +25,7 @@ Start here if you are navigating the repo docs. Future docs must follow
 |---|---|---|
 | [guides/admin-deployment.md](guides/admin-deployment.md) | Deploy and configure the server on BTP CF + IAS. | Setting up or operating the server |
 | [guides/per-user-ias-auth-setup.md](guides/per-user-ias-auth-setup.md) | Proven IAS-first per-user CF/BTP setup: IAS app config, app-to-app exchange, CF roles, troubleshooting. | Setting up per-user auth in a tenant |
+| [guides/connect-mcp-clients.md](guides/connect-mcp-clients.md) | Connect MCP clients: GitHub Copilot (coding agent / VS Code / Studio), Claude Desktop, Codex, Cursor — OAuth vs api-key per surface. | Wiring a client to the server |
 
 ## Operations
 
