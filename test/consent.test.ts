@@ -41,6 +41,38 @@ const client = (over: Record<string, unknown> = {}) =>
 const params = (over: Record<string, unknown> = {}) =>
   ({ redirectUri: 'https://c/cb', codeChallenge: 'chal', scopes: ['read'], ...over }) as any;
 
+describe('consent skip for admin-trusted redirects', () => {
+  const { provider: trusting } = createIasOAuthProvider(
+    ias,
+    'https://app.example',
+    keyFromSecret(secret),
+    'https://app.example/mcp',
+    ['read'],
+    secret,
+    undefined,
+    ['https://c/cb'], // admin pre-approved this exact redirect
+  );
+
+  it('302s straight to IAS for a trusted redirect — cookie STILL set (relay defense intact)', async () => {
+    const res = fakeRes();
+    await trusting.authorize(client(), params(), res);
+    expect(res.redirected).toContain('tenant.accounts.ondemand.com/oauth2/authorize');
+    expect(res.body).toBeUndefined(); // no interstitial
+    expect(res.headers['Set-Cookie']).toMatch(/mcp_consent=[^;]+;.*HttpOnly/); // the actual defense
+  });
+
+  it('still shows the interstitial for a DIFFERENT redirect on the same server', async () => {
+    const res = fakeRes();
+    await trusting.authorize(
+      client({ redirect_uris: ['https://evil/cb'] }),
+      params({ redirectUri: 'https://evil/cb' }),
+      res,
+    );
+    expect(res.redirected).toBeUndefined();
+    expect(res.body).toContain('Authorize access');
+  });
+});
+
 describe('OAuth consent gate', () => {
   it('renders an interstitial (not a redirect) naming the client + an Approve link to IAS', async () => {
     const res = fakeRes();

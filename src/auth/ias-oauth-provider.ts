@@ -115,6 +115,9 @@ export class IasProxyOAuthProvider extends ProxyOAuthServerProvider {
     // Seal with `sealKey` (current); unseal refresh tokens with all keys (current + previous) so refresh
     // survives a SEALING_SECRET rotation. Defaults to [sealKey] when no previous key is configured.
     private readonly unsealKeys: Uint8Array[] = [sealKey],
+    // Exact redirect URIs the ADMIN pre-approved: skip the consent page (straight 302 to IAS). The
+    // anti-relay cookie is STILL set — only the human click is waived for known clients.
+    private readonly trustedRedirects: string[] = [],
   ) {
     const authUrl = `${ias.issuer}/oauth2/authorize`;
     const tokenUrl = `${ias.issuer}/oauth2/token`;
@@ -158,8 +161,14 @@ export class IasProxyOAuthProvider extends ProxyOAuthServerProvider {
       'Set-Cookie',
       `${CONSENT_COOKIE}=${signConsent(this.signingSecret)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${CONSENT_TTL_MS / 1000}${this.secureCookies ? '; Secure' : ''}`,
     );
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
+    // Admin-trusted client (exact redirect match): skip the interstitial, go straight to IAS. The cookie
+    // above still binds this browser, so the relay defense at /oauth/callback is intact.
+    if (params.redirectUri && this.trustedRedirects.includes(params.redirectUri)) {
+      res.redirect(url.toString());
+      return;
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(
       renderConsentPage({
         clientName: client.client_name || client.client_id,
@@ -265,6 +274,7 @@ export function createIasOAuthProvider(
   defaultScopes: string[],
   signingSecret: string,
   dcrSigningSecret?: string, // dedicated HMAC for DCR client_ids; keeps them valid across a SEALING_SECRET rotation
+  trustedRedirects: string[] = [], // exact redirect URIs that skip the consent page (admin-pre-approved clients)
 ): {
   provider: IasProxyOAuthProvider;
   clientStore: StatelessDcrClientStore;
@@ -293,6 +303,7 @@ export function createIasOAuthProvider(
     signingSecret,
     appUrl.startsWith('https://'),
     unsealKeys,
+    trustedRedirects,
   );
   return { provider, clientStore, stateCodec, consentGuard: createConsentGuard(signingSecret) };
 }

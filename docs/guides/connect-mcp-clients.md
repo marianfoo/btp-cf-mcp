@@ -87,6 +87,10 @@ VS Code runs the MCP client in its Node/Electron extension host (not a web page)
   "Manual" — that's for XSUAA-native servers). Copilot Studio walks the discovery endpoints and self-registers
   via DCR. Per-user IAS identity.
 - **Simpler:** *API key* → Type *Header*, name `Authorization`, value `Bearer <your API key>` (shared identity).
+- **Skip the consent page for your connector:** the sign-in popup shows a one-click consent screen
+  (confused-deputy defense). For a connector you operate, allowlist its exact redirect URI (shown on that
+  page, `https://global.consent.azure-apim.net/redirect/…`) via `CONSENT_TRUSTED_REDIRECTS` — the flow then
+  goes straight to the IAS login; unknown clients still get the screen.
 
 > If — and only if — you ever see a CORS error in browser devtools during a Copilot Studio connection,
 > that means a browser-origin call path is in play. btp-cf-mcp emits **no CORS headers today** (not needed

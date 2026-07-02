@@ -222,6 +222,7 @@ read-only user.
 | `CF_API` | — | Cloud Controller API base (`https://api.cf.<region>.hana.ondemand.com`) |
 | `PUBLIC_URL` | — | the public https route; OAuth metadata + sealed-token audience + IAS redirect derive from it |
 | `MCP_REFRESH_TTL` | `8h` | longest before a browser re-auth (jose duration, e.g. `30d`); the 30-min access token refreshes silently under it. Real ceiling = the IAS tenant's refresh-token lifetime |
+| `CONSENT_TRUSTED_REDIRECTS` | — | CSV of **exact** redirect URIs that skip the OAuth consent page (straight to IAS). Use for clients you operate (e.g. your Copilot Studio connector's `https://global.consent.azure-apim.net/redirect/…`). The anti-relay cookie is still set; unknown clients still get the consent screen |
 | **BTPInspect (both identity models)** | | |
 | `BTP_GA_SUBDOMAIN` | — | global-account subdomain; **required for any per-user OR technical-user BTPInspect** (else BTPInspect falls back to the shared CIS key) |
 | `BTP_DEFAULT_SUBACCOUNT` | — | default subaccount for `subaccount`/`environments` when no CIS key supplies one (a CLI-server-only deploy has no CIS); else pass `subaccount` per call |

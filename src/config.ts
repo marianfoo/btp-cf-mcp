@@ -48,6 +48,7 @@ export interface AppConfig {
   sealingSecret?: string; // SEALING_SECRET — keys the MCP-token JWE (ADR-009)
   sealingSecretPrevious?: string; // SEALING_SECRET_PREVIOUS — old key kept valid during rotation
   dcrSigningSecret?: string; // DCR_SIGNING_SECRET — dedicated HMAC for DCR client_ids; decouples them from SEALING_SECRET rotation (defaults to SEALING_SECRET)
+  consentTrustedRedirects: string[]; // CONSENT_TRUSTED_REDIRECTS — exact redirect URIs that skip the OAuth consent page (admin-pre-approved clients)
   btpGaSubdomain?: string; // BTP_GA_SUBDOMAIN — enables BTPAccount via the btp CLI server (per-user AND tech-user)
   btpTechUser?: BtpTechUser; // BTP_TECH_USER/_PASSWORD/_IDP — shared read-only BTPAccount identity (Strategy B)
   btpDefaultSubaccount?: string; // BTP_DEFAULT_SUBACCOUNT — default subaccount when no CIS key binds one
@@ -151,6 +152,7 @@ export function loadConfig(): AppConfig {
     sealingSecret: process.env.SEALING_SECRET,
     sealingSecretPrevious: process.env.SEALING_SECRET_PREVIOUS,
     dcrSigningSecret: process.env.DCR_SIGNING_SECRET,
+    consentTrustedRedirects: csv(process.env.CONSENT_TRUSTED_REDIRECTS),
     btpGaSubdomain: process.env.BTP_GA_SUBDOMAIN,
     btpTechUser: loadBtpTechUser(process.env.IAS_ISSUER),
     btpDefaultSubaccount: process.env.BTP_DEFAULT_SUBACCOUNT,

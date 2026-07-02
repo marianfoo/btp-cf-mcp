@@ -157,6 +157,7 @@ export function startHttp(
       defaultScopes,
       config.sealingSecret,
       config.dcrSigningSecret,
+      config.consentTrustedRedirects,
     );
     app.use(
       mcpAuthRouter({
