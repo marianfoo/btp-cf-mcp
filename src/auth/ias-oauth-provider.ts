@@ -22,7 +22,10 @@ import { createSealedJweVerifier } from './sealed-verifier.js';
 
 const IAS_LOGIN_SCOPES = 'openid email profile groups offline_access';
 const TOKEN_TTL_SEC = 1800;
-const REFRESH_TTL = '8h';
+// Refresh-token lifetime = the longest a client goes before a browser re-auth (the 30-min access token
+// refreshes silently under it). Override with MCP_REFRESH_TTL (jose duration, e.g. '30d', '3650d'). Default
+// 8h is the safe value for a shared deploy; the real ceiling is still the IAS tenant's refresh-token lifetime.
+const REFRESH_TTL = process.env.MCP_REFRESH_TTL || '8h';
 
 // Consent cookie: proves this BROWSER passed the /authorize consent page. Verified at /oauth/callback so a
 // relayed victim (whose browser never saw consent) is rejected — the confused-deputy defense (see authorize).

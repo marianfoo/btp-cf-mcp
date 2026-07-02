@@ -220,6 +220,7 @@ read-only user.
 | `SEALING_SECRET_PREVIOUS` | — | old key kept valid during a rotation: set `SEALING_SECRET`=new + this=old → live tokens keep working until they expire, then drop it (rotate without a mass re-login) |
 | `CF_API` | — | Cloud Controller API base (`https://api.cf.<region>.hana.ondemand.com`) |
 | `PUBLIC_URL` | — | the public https route; OAuth metadata + sealed-token audience + IAS redirect derive from it |
+| `MCP_REFRESH_TTL` | `8h` | longest before a browser re-auth (jose duration, e.g. `30d`); the 30-min access token refreshes silently under it. Real ceiling = the IAS tenant's refresh-token lifetime |
 | **BTPInspect (both identity models)** | | |
 | `BTP_GA_SUBDOMAIN` | — | global-account subdomain; **required for any per-user OR technical-user BTPInspect** (else BTPInspect falls back to the shared CIS key) |
 | `BTP_DEFAULT_SUBACCOUNT` | — | default subaccount for `subaccount`/`environments` when no CIS key supplies one (a CLI-server-only deploy has no CIS); else pass `subaccount` per call |
