@@ -69,6 +69,13 @@ export async function dispatch(
     // - btp: the gated subaccount is the SAME value ctx.sub() scopes the API call to.
     // - cf: runCfWrite resolves the app's real space server-side and gates that (never an LLM-supplied value).
     if (!def.run) return fail(`'${name}.${action}' is not implemented.`);
+    // Writes are PER-USER ONLY (codex P1): without this, an api-key caller would mutate via the shared
+    // identities (tech user / shared CF token) — unattributable writes contradicting the per-user model.
+    if (!ias?.iasCredential) {
+      return fail(
+        `'${name}.${action}' is a write and writes run per-user only — connect via OAuth (IAS login). API-key/shared-identity callers are read-only by design.`,
+      );
+    }
     if (def.backend === 'btp') {
       requireTarget(safety, 'subaccount', (args.subaccount as string | undefined) ?? defaultSub);
       return await runBtpWrite(def, args, config, ias, defaultSub);
@@ -231,7 +238,7 @@ async function runBtpRead(
 }
 
 function btpWrite403Hint(def: ActionDef, _args: Record<string, unknown>): string {
-  return `HTTP 403 on '${def.action}'. The acting identity cannot manage service instances — per-user callers need the "Subaccount Administrator" or "Subaccount Service Administrator" role collection on the target subaccount; the shared technical user is read-only by design.`;
+  return `HTTP 403 on '${def.action}'. Your user cannot manage service instances — you need the "Subaccount Administrator" or "Subaccount Service Administrator" role collection on the target subaccount (assign under the app-login IdP origin, then re-login).`;
 }
 
 // BTP writes: CLI-server path ONLY (the shared CIS key is read-only by design — never a write fallback).

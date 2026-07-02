@@ -60,12 +60,18 @@ describe('CF writes gate on the SERVER-RESOLVED space (never an LLM-supplied val
       },
     }) as any;
   const text = (r: any): string => r.content[0].text;
+  const IAS = { sub: 'user@example.com', iasCredential: 'id-token' }; // writes are per-user only
 
   it('executes when the app really lives in an allowlisted space', async () => {
     const posted: string[] = [];
-    const r = await dispatch('CFApps', { action: 'restart', guid: APP }, ['write'], writeCfg([GOOD_SPACE]), {
-      cf: cfClient(GOOD_SPACE, posted),
-    });
+    const r = await dispatch(
+      'CFApps',
+      { action: 'restart', guid: APP },
+      ['write'],
+      writeCfg([GOOD_SPACE]),
+      { cf: cfClient(GOOD_SPACE, posted) },
+      IAS,
+    );
     expect(r.isError).toBeUndefined();
     expect(posted).toEqual([`/v3/apps/${APP}/actions/restart`]);
     expect(text(r)).toMatch(/STARTED/);
@@ -79,6 +85,7 @@ describe('CF writes gate on the SERVER-RESOLVED space (never an LLM-supplied val
       ['write'],
       writeCfg([GOOD_SPACE]),
       { cf: cfClient(EVIL_SPACE, posted) },
+      IAS,
     );
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/not in the allowlist/);
@@ -86,19 +93,39 @@ describe('CF writes gate on the SERVER-RESOLVED space (never an LLM-supplied val
   });
 
   it('fails closed when the space cannot be resolved', async () => {
-    const r = await dispatch('CFApps', { action: 'restart', guid: APP }, ['write'], writeCfg([GOOD_SPACE]), {
-      cf: { get: async () => ({}), post: async () => ({}) } as any,
-    });
+    const r = await dispatch(
+      'CFApps',
+      { action: 'restart', guid: APP },
+      ['write'],
+      writeCfg([GOOD_SPACE]),
+      { cf: { get: async () => ({}), post: async () => ({}) } as any },
+      IAS,
+    );
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/fail closed/i);
   });
 
   it('refuses a write without the write scope', async () => {
-    const r = await dispatch('CFApps', { action: 'restart', guid: APP }, ['read'], writeCfg([GOOD_SPACE]), {
-      cf: cfClient(GOOD_SPACE, []),
-    });
+    const r = await dispatch(
+      'CFApps',
+      { action: 'restart', guid: APP },
+      ['read'],
+      writeCfg([GOOD_SPACE]),
+      { cf: cfClient(GOOD_SPACE, []) },
+      IAS,
+    );
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/requires the 'write' scope/);
+  });
+
+  it('refuses a write from an api-key caller (no IAS credential) — per-user only, nothing mutated (codex P1)', async () => {
+    const posted: string[] = [];
+    const r = await dispatch('CFApps', { action: 'restart', guid: APP }, ['write'], writeCfg([GOOD_SPACE]), {
+      cf: cfClient(GOOD_SPACE, posted),
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/per-user only/);
+    expect(posted).toEqual([]);
   });
 });
 
@@ -114,8 +141,25 @@ describe('BTP writes gate the subaccount before any backend call', () => {
       ['write'],
       cfg,
       {},
+      { sub: 'user@example.com', iasCredential: 'id-token' },
     );
     expect(r.isError).toBe(true);
     expect((r.content[0] as { text: string }).text).toMatch(/not in the allowlist/);
+  });
+
+  it('refuses a BTP write from an api-key caller (no IAS credential)', async () => {
+    const cfg = {
+      ...config,
+      safety: { ...config.safety, allowWrites: true, allowedSubaccounts: [SUB] },
+    } as unknown as AppConfig;
+    const r = await dispatch(
+      'BTPServices',
+      { action: 'create_service', subaccount: SUB, name: 'x', offering: 'xsuaa', plan: 'application' },
+      ['write'],
+      cfg,
+      {},
+    );
+    expect(r.isError).toBe(true);
+    expect((r.content[0] as { text: string }).text).toMatch(/per-user only/);
   });
 });

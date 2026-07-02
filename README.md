@@ -35,7 +35,7 @@ auto-approve, no confirm friction), and a read-only deployment renders **only** 
 | **`CFInspect`** (read) | `orgs`, `spaces`, `apps`, `services`, `routes`, `app_detail`, `app_processes` | Cloud Controller v3; as the user or a shared CF token. `app_processes` = instance health/state |
 | **`BTPInspect`** (read) | `subaccount`, `subaccounts`, `global_account`, `environments`, `entitlements`, `subscriptions` | `entitlements` = global-account catalog, or a subaccount's plan assignments if you pass a subaccount |
 | **`whoami`** | — | diagnostic: resolved scopes + token claims |
-| `CFApps` / `BTPServices` (write) | restart/stop/start an app · create/delete service instances | hidden unless `ALLOW_WRITES=true`; targets must be allowlisted — CFApps resolves the app's **real** space server-side |
+| `CFApps` / `BTPServices` (write) | restart/stop/start an app · create/delete service instances | **per-user (OAuth) only**; hidden unless `ALLOW_WRITES=true`; targets must be allowlisted — CFApps resolves the app's **real** space server-side |
 
 A deliberately small surface (fewer tools select more accurately). Every action is defined once in a
 **single-source registry** (`src/registry.ts`); the schema, scopes, MCP annotations, and dispatch all

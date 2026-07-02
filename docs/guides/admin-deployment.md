@@ -286,7 +286,7 @@ the MCP client.
 | **401 Unauthorized** on `/mcp` | Missing/expired token | Re-login (the sealed token has a ~30-min TTL); or pass `Bearer <key>` |
 | A tool reports **"backend unavailable"** | Fallback path with no shared backend configured | Set `CIS_SERVICE_KEY` / `CF_API`+`CF_TOKEN`, or use the per-user (IAS) path |
 | App **deleted or `cf` re-targets** mid-deploy | Background automation on the account re-targeting `cf` | Deploy in an isolated `CF_HOME` and chain push+set-env+restage in one invocation |
-| A write returns **403** for an api-key caller | The shared technical user is read-only by design | Use per-user OAuth (the user needs Subaccount/Service Administrator), or accept reads-only for api-key callers |
+| A write is refused with "**per-user only**" | api-key/shared-identity callers cannot write — by design (unattributable mutations) | Connect via OAuth; the user needs Subaccount/Service Administrator for service writes |
 | A CF write is refused with "**not in the allowlist**" naming a space you didn't pass | Correct behavior — the server resolves the app's REAL space and gates that | Add the app's space GUID to `ALLOWED_SPACES` if the write is intended |
 
 ## 11. Caveats & known limitations
@@ -309,11 +309,11 @@ the MCP client.
 - **Consent gate is per-authorization.** DCR is guarded by a signed, browser-bound consent screen (a
   relayed victim's cookieless callback is rejected). For untrusted exposure, also tighten the DCR
   redirect-URI allowlist as defence-in-depth.
-- **Writes execute as the acting identity** — the shared technical user is read-only by design, so
-  api-key-driven writes get an SAP 403; per-user (OAuth) callers need Subaccount/Service Administrator on
-  the target subaccount. Service create/delete may complete **asynchronously** — verify with
-  `BTPInspect.service_instances`. Access tokens live ~30 min; a **refresh token** is issued when IAS
-  grants one, else the client re-authenticates.
+- **Writes are per-user only** — api-key/shared-identity callers are refused at the MCP layer (a shared
+  identity would make mutations unattributable). Per-user (OAuth) callers need Subaccount/Service
+  Administrator on the target subaccount for service writes. Service create/delete may complete
+  **asynchronously** — verify with `BTPInspect.service_instances`. Access tokens live ~30 min; a
+  **refresh token** is issued when IAS grants one, else the client re-authenticates.
 - **Rotate secrets.** `IAS_CLIENT_SECRET` (IAS console) + the tech-user password are the crown jewels;
   rotate `SEALING_SECRET` gracefully via `SEALING_SECRET_PREVIOUS` (§7) — no mass re-login.
 
@@ -329,7 +329,7 @@ outbound:
   `{"grantType":"clientCredentials"}`, **not** `cf create-service` (which yields a `user_token` grant →
   HTTP 502 "Communication error with XSUAA", code 42008). Even then, a `local`-plan key can read only
   `environments`.
-- Set `CF_API` + a `CF_TOKEN` bearer for `CFInspect` (note: a shared CF token also enables `CFApps` writes if `ALLOW_WRITES=true` — keep writes off on shared-token deploys).
+- Set `CF_API` + a `CF_TOKEN` bearer for `CFInspect` (reads only — writes are per-user and refused for shared-identity callers).
 
 ## 13. References
 - [per-user-ias-auth-setup.md](per-user-ias-auth-setup.md) — the IAS one-time setup (proven recipe) + CF/BTP legs
