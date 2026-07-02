@@ -155,6 +155,7 @@ export function startHttp(
       audience,
       defaultScopes,
       config.sealingSecret,
+      config.dcrSigningSecret,
     );
     app.use(
       mcpAuthRouter({

@@ -264,6 +264,7 @@ export function createIasOAuthProvider(
   audience: string,
   defaultScopes: string[],
   signingSecret: string,
+  dcrSigningSecret?: string, // dedicated HMAC for DCR client_ids; keeps them valid across a SEALING_SECRET rotation
 ): {
   provider: IasProxyOAuthProvider;
   clientStore: StatelessDcrClientStore;
@@ -272,7 +273,11 @@ export function createIasOAuthProvider(
 } {
   const unsealKeys = Array.isArray(sealKeys) ? sealKeys : [sealKeys];
   const sealKey = unsealKeys[0];
-  const clientStore = new StatelessDcrClientStore(ias.clientId, ias.clientSecret, signingSecret, { ttlSeconds: 0 });
+  // DCR client_ids are HMAC-signed; use the dedicated secret when set so rotating SEALING_SECRET (signingSecret)
+  // doesn't invalidate every registered client. Falls back to signingSecret (unchanged behavior).
+  const clientStore = new StatelessDcrClientStore(ias.clientId, ias.clientSecret, dcrSigningSecret ?? signingSecret, {
+    ttlSeconds: 0,
+  });
   const stateCodec = new OAuthStateCodec(signingSecret);
   const callbackUrl = `${appUrl.replace(/\/$/, '')}/oauth/callback`;
   const verifier = createSealedJweVerifier(unsealKeys, audience);

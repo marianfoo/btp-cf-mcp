@@ -60,6 +60,7 @@ Pre-commit: Husky runs `lint-staged` → Biome auto-fixes staged files. **Never 
 | `BTP_TECH_USER` / `BTP_TECH_PASSWORD` / `BTP_TECH_IDP` | shared read-only technical user (Strategy B) — CLI-server username/password login; idp defaults to the IAS_ISSUER host |
 | `SEALING_SECRET` / `SEALING_SECRET_PREVIOUS` | 32-byte-random key for sealed MCP tokens (weak = brute-forceable); set `_PREVIOUS`=old during rotation to keep live tokens valid (seal uses current, unseal tries both) |
 | `MCP_REFRESH_TTL` | OAuth refresh-token lifetime = longest before a browser re-auth (jose duration, default `8h`); capped by the IAS tenant's own refresh-token lifetime |
+| `DCR_SIGNING_SECRET` | dedicated HMAC for OAuth DCR client_ids (defaults to `SEALING_SECRET`); set it so a `SEALING_SECRET` rotation doesn't force every client to re-register |
 | `BTP_DEFAULT_SUBACCOUNT` | default subaccount for the BTP tools when no CIS key supplies one (CLI-server-only deploy) |
 | XSUAA | bound service → VCAP (inbound OAuth URL login via `@arc-mcp/xsuaa-auth`) |
 
