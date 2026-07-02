@@ -10,6 +10,7 @@ function ctx(over: Partial<ActionCtx> = {}): ActionCtx {
     sub: () => 'sub-guid',
     guid: (f) => (f === 'guid' ? 'app-g' : SUB),
     cf: async () => ({}),
+    cfPost: async () => ({}),
     logs: async () => ({}),
     btp: async () => ({}),
     ...over,
@@ -27,8 +28,14 @@ describe('registry (single source)', () => {
     }
   });
 
-  it('reads have a run(); writes are inert (no run)', () => {
-    for (const a of REGISTRY) expect(typeof a.run === 'function').toBe(a.op === 'R');
+  it('every action (reads AND writes) has a run()', () => {
+    for (const a of REGISTRY) expect(typeof a.run, `${a.tool}.${a.action}`).toBe('function');
+  });
+
+  it('every write declares a target dimension (the allowlist gate)', () => {
+    for (const a of REGISTRY.filter((x) => x.op !== 'R')) {
+      expect(a.target, `${a.tool}.${a.action}`).toBeDefined();
+    }
   });
 
   it('CF app_processes fetches the process list then per-type instance stats and merges them', async () => {
@@ -230,5 +237,58 @@ describe('registry (single source)', () => {
       ctx({ btp: async () => ({ items: [{ name: 'xsuaa', metadata: { big: 1 }, iconBase64: 'x' }] }) }),
     )) as any;
     expect(out.items[0]).toEqual({ name: 'xsuaa' });
+  });
+
+  it('CFApps writes POST the v3 action endpoints and return app state + next step', async () => {
+    for (const action of ['restart', 'stop', 'start']) {
+      let posted = '';
+      const cfPost = async (p: string): Promise<unknown> => {
+        posted = p;
+        return { guid: 'app-g', name: 'my-app', state: 'STARTED', created_at: 'x', lifecycle: {} };
+      };
+      const out = (await getAction('CFApps', action)?.run?.(ctx({ args: { guid: 'app-g' }, cfPost }))) as any;
+      expect(posted).toBe(`/v3/apps/app-g/actions/${action}`);
+      expect(out.app).toEqual({ guid: 'app-g', name: 'my-app', state: 'STARTED' }); // projected, no lifecycle noise
+      expect(out._next).toMatch(/app_processes/);
+    }
+  });
+
+  it('create_service sends the live-captured CLI-server wire params', async () => {
+    let seen: any;
+    const btp = async (c: string, a: string, p: Record<string, unknown>): Promise<unknown> => {
+      seen = { c, a, p };
+      return { id: 'new-id' };
+    };
+    const out = (await getAction('BTPServices', 'create_service')?.run?.(
+      ctx({ args: { name: 'my-xsuaa', offering: 'xsuaa', plan: 'application' }, btp }),
+    )) as any;
+    expect(seen).toEqual({
+      c: 'services/instance',
+      a: 'create',
+      p: { subaccount: 'sub-guid', name: 'my-xsuaa', offeringName: 'xsuaa', planName: 'application' },
+    });
+    expect(out._next).toMatch(/service_instances/);
+  });
+
+  it('create_service refuses an injection-shaped name', async () => {
+    await expect(
+      getAction('BTPServices', 'create_service')?.run?.(
+        ctx({ args: { name: 'x; rm -rf /', offering: 'xsuaa', plan: 'application' } }),
+      ),
+    ).rejects.toThrow(/must be 1-64 chars/);
+  });
+
+  it('delete_service sends instanceID + confirm (the captured delete wire format)', async () => {
+    let seen: any;
+    const btp = async (c: string, a: string, p: Record<string, unknown>): Promise<unknown> => {
+      seen = { c, a, p };
+      return {};
+    };
+    await getAction('BTPServices', 'delete_service')?.run?.(ctx({ args: { instanceId: SUB }, btp }));
+    expect(seen).toEqual({
+      c: 'services/instance',
+      a: 'delete',
+      p: { subaccount: 'sub-guid', instanceID: SUB, confirm: 'true' },
+    });
   });
 });

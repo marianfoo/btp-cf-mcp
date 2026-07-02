@@ -20,7 +20,7 @@ import { CfClient } from './btp.js';
 import type { AppConfig, BtpTechUser, IasConfig } from './config.js';
 import { hasScope } from './policy.js';
 import { type ActionCtx, type ActionDef, entitlement403Hint, getAction } from './registry.js';
-import { checkOperation, deriveUserSafety, isDenied, requireTarget, SafetyError } from './safety.js';
+import { checkOperation, deriveUserSafety, isDenied, requireTarget, type SafetyConfig, SafetyError } from './safety.js';
 
 export interface Clients {
   cis?: CisClient;
@@ -60,20 +60,20 @@ export async function dispatch(
   const defaultSub = clients.subaccountId ?? config.btpDefaultSubaccount;
   try {
     checkOperation(safety, def.op, `${name}.${action}`); // read-only by default
-    if (def.op !== 'R' && def.target) {
-      // Resolve the target (subaccount defaults to the bound one) then require it present + allowlisted.
-      const value =
-        def.target === 'subaccount'
-          ? ((args.subaccount as string | undefined) ?? defaultSub)
-          : (args[def.target] as string | undefined);
-      requireTarget(safety, def.target, value);
+    if (def.op === 'R') {
+      return def.backend === 'cf'
+        ? await runCfRead(def, args, config, clients, ias, defaultSub)
+        : await runBtpRead(def, args, config, clients, ias, defaultSub);
     }
-    if (def.op !== 'R') {
-      return fail(`'${name}.${action}' is a write that passed the safety gate but is NOT YET IMPLEMENTED.`);
+    // Writes. The allowlist gate runs on the REAL target, by construction:
+    // - btp: the gated subaccount is the SAME value ctx.sub() scopes the API call to.
+    // - cf: runCfWrite resolves the app's real space server-side and gates that (never an LLM-supplied value).
+    if (!def.run) return fail(`'${name}.${action}' is not implemented.`);
+    if (def.backend === 'btp') {
+      requireTarget(safety, 'subaccount', (args.subaccount as string | undefined) ?? defaultSub);
+      return await runBtpWrite(def, args, config, ias, defaultSub);
     }
-    return def.backend === 'cf'
-      ? await runCfRead(def, args, config, clients, ias, defaultSub)
-      : await runBtpRead(def, args, config, clients, ias, defaultSub);
+    return await runCfWrite(def, args, config, clients, ias, defaultSub, safety);
   } catch (e) {
     if (e instanceof SafetyError) return fail(e.message);
     return fail(`Error calling '${name}.${action}': ${(e as Error).message}`);
@@ -85,7 +85,7 @@ function makeCtx(
   args: Record<string, unknown>,
   ga: string | undefined,
   defaultSub: string | undefined,
-  over: Partial<Pick<ActionCtx, 'cf' | 'logs' | 'btp'>>,
+  over: Partial<Pick<ActionCtx, 'cf' | 'cfPost' | 'logs' | 'btp'>>,
 ): ActionCtx {
   const noBackend = (which: string) => async (): Promise<never> => {
     throw new Error(`${which} backend not available`);
@@ -96,6 +96,7 @@ function makeCtx(
     sub: () => asGuid((args.subaccount as string | undefined) ?? defaultSub, 'subaccount'),
     guid: (field) => asGuid(args[field], field),
     cf: over.cf ?? (noBackend('CF') as ActionCtx['cf']),
+    cfPost: over.cfPost ?? (noBackend('CF-write') as ActionCtx['cfPost']),
     logs: over.logs ?? (noBackend('CF-logs') as ActionCtx['logs']),
     btp: over.btp ?? (noBackend('BTP') as ActionCtx['btp']),
   };
@@ -143,14 +144,76 @@ async function runCfRead(
   return ok(json(await def.run?.(ctx)));
 }
 
+// CF write: SERVER-SIDE target resolution, by construction. Every CF write is app-guid-addressed; we
+// resolve the app's REAL space from the Cloud Controller and gate THAT against the allowlist — the LLM
+// never supplies the gated value (a caller could otherwise name an allowlisted space but target an app
+// elsewhere). Only then does the action's run() get the cfPost accessor.
+async function runCfWrite(
+  def: ActionDef,
+  args: Record<string, unknown>,
+  config: AppConfig,
+  clients: Clients,
+  ias: { iasCredential: string } | undefined,
+  defaultSub: string | undefined,
+  safety: SafetyConfig,
+): Promise<ToolResult> {
+  const cf =
+    ias?.iasCredential && config.ias && config.cfApi
+      ? new CfClient(config.cfApi, perUserCfProvider(ias.iasCredential, config.ias))
+      : clients.cf;
+  if (!cf) return fail('CF backend not configured — log in via OAuth, or set CF_API + a CF token.');
+  const appGuid = asGuid(args.guid, 'guid');
+  const app = (await cf.get(`/v3/apps/${appGuid}`)) as {
+    relationships?: { space?: { data?: { guid?: string } } };
+  };
+  const spaceGuid = app.relationships?.space?.data?.guid;
+  if (!spaceGuid) return fail("Could not resolve the app's space — refusing the write (fail closed).");
+  requireTarget(safety, 'space', spaceGuid);
+  const ctx = makeCtx(args, config.btpGaSubdomain, defaultSub, { cf: (p) => cf.get(p), cfPost: (p) => cf.post(p) });
+  return ok(json(await def.run?.(ctx)));
+}
+
 function btp403Hint(def: ActionDef, args: Record<string, unknown>): string {
   if (def.action === 'entitlements') return entitlement403Hint(args.subaccount as string | undefined);
   return `HTTP 403 on '${def.action}'. The acting identity lacks the read-only role — assign "Global Account Viewer" (global reads) or "Subaccount Viewer" (subaccount-scoped reads) and retry after ~1–2 min.`;
 }
 
-// BTP account read via the btp CLI server, in precedence: per-user (this request's IAS credential) →
-// shared read-only technical user → shared-CIS fallback (only the cisFallback actions). Sessions are
-// cached per identity; a stale-session 401 drops the cache and re-logs-in once.
+// Run a registry action via the btp CLI server, per-user (this request's IAS credential) or shared
+// technical user. Sessions are cached per identity; a stale-session 401 drops the cache and re-logs-in
+// once. Returns null when no CLI-server path is configured (caller decides the fallback).
+async function runBtpViaCli(
+  def: ActionDef,
+  args: Record<string, unknown>,
+  config: AppConfig,
+  ias: { iasCredential: string } | undefined,
+  defaultSub: string | undefined,
+  hint403: (def: ActionDef, args: Record<string, unknown>) => string,
+): Promise<ToolResult | null> {
+  const ga = config.btpGaSubdomain;
+  if (!ga || !((ias?.iasCredential && config.ias) || config.btpTechUser)) return null;
+  const perUser = Boolean(ias?.iasCredential && config.ias);
+  const key = perUser
+    ? sessionCacheKey('user', ias!.iasCredential, ga)
+    : sessionCacheKey('tech', config.btpTechUser!.userName, config.btpTechUser!.password, ga, config.btpTechUser!.idp);
+  const login = perUser ? perUserLogin(ias!.iasCredential, config.ias!, ga) : techLogin(config.btpTechUser!, ga);
+  const attempt = async (): Promise<unknown> => {
+    const session = await cachedSession(key, login);
+    const ctx = makeCtx(args, ga, defaultSub, { btp: (c, a, p) => btpcliCommand(session, c, a, p) });
+    return def.run?.(ctx);
+  };
+  try {
+    return ok(json(await attempt()));
+  } catch (e) {
+    if (e instanceof BackendError && e.status === 401) {
+      invalidateSession(key); // stale session → re-login once
+      return ok(json(await attempt()));
+    }
+    if (e instanceof BackendError && e.status === 403) return fail(hint403(def, args));
+    throw e;
+  }
+}
+
+// BTP reads: CLI-server path first, then the shared-CIS fallback (only the cisFallback actions).
 async function runBtpRead(
   def: ActionDef,
   args: Record<string, unknown>,
@@ -159,38 +222,31 @@ async function runBtpRead(
   ias: { iasCredential: string } | undefined,
   defaultSub: string | undefined,
 ): Promise<ToolResult> {
-  const ga = config.btpGaSubdomain;
-  if (ga && ((ias?.iasCredential && config.ias) || config.btpTechUser)) {
-    const perUser = Boolean(ias?.iasCredential && config.ias);
-    const key = perUser
-      ? sessionCacheKey('user', ias!.iasCredential, ga)
-      : sessionCacheKey(
-          'tech',
-          config.btpTechUser!.userName,
-          config.btpTechUser!.password,
-          ga,
-          config.btpTechUser!.idp,
-        );
-    const login = perUser ? perUserLogin(ias!.iasCredential, config.ias!, ga) : techLogin(config.btpTechUser!, ga);
-    const attempt = async (): Promise<unknown> => {
-      const session = await cachedSession(key, login);
-      const ctx = makeCtx(args, ga, defaultSub, { btp: (c, a, p) => btpcliCommand(session, c, a, p) });
-      return def.run?.(ctx);
-    };
-    try {
-      return ok(json(await attempt()));
-    } catch (e) {
-      if (e instanceof BackendError && e.status === 401) {
-        invalidateSession(key); // stale session → re-login once
-        return ok(json(await attempt()));
-      }
-      if (e instanceof BackendError && e.status === 403) return fail(btp403Hint(def, args));
-      throw e;
-    }
-  }
+  const viaCli = await runBtpViaCli(def, args, config, ias, defaultSub, btp403Hint);
+  if (viaCli) return viaCli;
   if (clients.cis && def.cisFallback) return runBtpCisFallback(def, args, clients, defaultSub);
   return fail(
     'BTPAccount backend not configured — set BTP_GA_SUBDOMAIN + (per-user IAS login or BTP_TECH_USER), or bind a CIS key.',
+  );
+}
+
+function btpWrite403Hint(def: ActionDef, _args: Record<string, unknown>): string {
+  return `HTTP 403 on '${def.action}'. The acting identity cannot manage service instances — per-user callers need the "Subaccount Administrator" or "Subaccount Service Administrator" role collection on the target subaccount; the shared technical user is read-only by design.`;
+}
+
+// BTP writes: CLI-server path ONLY (the shared CIS key is read-only by design — never a write fallback).
+// The subaccount-allowlist gate ran in dispatch on the SAME value ctx.sub() resolves to.
+async function runBtpWrite(
+  def: ActionDef,
+  args: Record<string, unknown>,
+  config: AppConfig,
+  ias: { iasCredential: string } | undefined,
+  defaultSub: string | undefined,
+): Promise<ToolResult> {
+  const viaCli = await runBtpViaCli(def, args, config, ias, defaultSub, btpWrite403Hint);
+  if (viaCli) return viaCli;
+  return fail(
+    'BTP writes need the CLI-server path — set BTP_GA_SUBDOMAIN + (per-user IAS login or BTP_TECH_USER). The shared CIS key cannot write.',
   );
 }
 

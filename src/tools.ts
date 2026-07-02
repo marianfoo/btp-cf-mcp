@@ -30,9 +30,8 @@ export interface VisibilityCtx {
 }
 
 const PARAM_DESC: Record<string, string> = {
-  guid: 'Resource GUID — an APP guid for the app_* actions, an ORG guid for org_usage_summary/org_quota, a SERVICE-INSTANCE guid for service_instance_parameters. UUID form, e.g. 6064d98a-95e6-400b-8a0e-37dcc14a5f7d.',
+  guid: 'Resource GUID — an APP guid for the app_* actions and CFApps writes, an ORG guid for org_usage_summary/org_quota, a SERVICE-INSTANCE guid for service_instance_parameters. UUID form, e.g. 6064d98a-95e6-400b-8a0e-37dcc14a5f7d.',
   limit: 'Max rows to return (e.g. app_logs line count). Optional; defaults to 100.',
-  space: 'Space GUID for write actions — the dimension the write gate checks. UUID form. Must be allowlisted.',
   subaccount:
     "Subaccount GUID. Defaults to the bound/configured subaccount (the CIS key's, or BTP_DEFAULT_SUBACCOUNT); REQUIRED if none is configured. UUID form.",
   name: "Name for the new service instance. Required for 'create_service'.",
@@ -45,11 +44,11 @@ const TOOL_INTRO: Record<string, string> = {
   CFInspect:
     'READ Cloud Foundry via the Cloud Controller v3 API, as the logged-in user (or a shared CF token). Read-only. Reports the backend unavailable if CF is not configured. Actions: ',
   CFApps:
-    'Cloud Foundry app-lifecycle WRITES (space-targeted; the target space must be allowlisted). NOT YET IMPLEMENTED — these pass the safety gate but do not execute. Actions: ',
+    "Cloud Foundry app-lifecycle WRITES — these EXECUTE against the Cloud Controller. Address the app by 'guid'; the server resolves the app's real space and refuses if it is not allowlisted. Actions: ",
   BTPInspect:
     'READ an SAP BTP account via the btp CLI account APIs, as the logged-in user (or a shared read-only technical user); works on a free/local subaccount. Read-only. Reads need the matching read-only role (Global Account Viewer, or Subaccount Viewer for subaccount-scoped reads) — HTTP 403 otherwise. Actions: ',
   BTPServices:
-    'SAP BTP service-instance WRITES (Service Manager; subaccount-targeted, must be allowlisted). NOT YET IMPLEMENTED — these pass the safety gate but do not execute. Actions: ',
+    'SAP BTP service-instance WRITES (Service Manager) — these EXECUTE as the acting identity. The target subaccount must be allowlisted; provisioning/deletion may complete asynchronously (verify with BTPInspect). Actions: ',
 };
 
 const TOOL_TITLE: Record<string, string> = {

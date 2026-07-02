@@ -6,10 +6,11 @@ import { BackendError, ClientCredentialsProvider, type TokenProvider } from './a
 import type { CisCreds } from './config.js';
 
 // `path` must already be a safe, encoded relative path (callers validate args before building it).
-async function getJson(base: string, path: string, token: string): Promise<unknown> {
+async function requestJson(base: string, path: string, token: string, method: 'GET' | 'POST'): Promise<unknown> {
   let res: Response;
   try {
     res = await fetch(base + path, {
+      method,
       headers: { Authorization: `bearer ${token}`, Accept: 'application/json' },
       signal: AbortSignal.timeout(15_000), // bound a hung backend so it can't hang the MCP request
     });
@@ -29,6 +30,8 @@ async function getJson(base: string, path: string, token: string): Promise<unkno
   const text = await res.text();
   return text ? JSON.parse(text) : {};
 }
+
+const getJson = (base: string, path: string, token: string): Promise<unknown> => requestJson(base, path, token, 'GET');
 
 export class CisClient {
   private readonly provider: ClientCredentialsProvider;
@@ -52,6 +55,10 @@ export class CfClient {
   ) {}
   async get(path: string): Promise<unknown> {
     return getJson(this.api, path, await this.provider.getToken());
+  }
+  // CF v3 write actions (e.g. /v3/apps/:guid/actions/restart) are body-less POSTs returning the resource.
+  async post(path: string): Promise<unknown> {
+    return requestJson(this.api, path, await this.provider.getToken(), 'POST');
   }
   // Recent app logs live on the log-cache host (not /v3), same UAA token. SAP CF: api.cf.<region> → log-cache.cf.<region>.
   async getLogs(sourceId: string, limit: number): Promise<unknown> {

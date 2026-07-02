@@ -8,15 +8,25 @@
 
 import type { OpType, Scope, TargetKind } from './policy.js';
 
-/** What a read action's `run` gets — backend accessors already bound to the resolved identity. */
+/** What an action's `run` gets — backend accessors already bound to the resolved identity. */
 export interface ActionCtx {
   args: Record<string, unknown>;
   ga: string; // global-account subdomain
   sub: () => string; // resolved subaccount GUID (throws if none configured/passed)
   guid: (field: string) => string; // validate a GUID-shaped arg
   cf: (path: string) => Promise<unknown>; // Cloud Controller v3 GET
+  cfPost: (path: string) => Promise<unknown>; // Cloud Controller v3 action POST (writes only; body-less)
   logs: (sourceId: string, limit: number) => Promise<unknown>; // CF log-cache (recent app logs; empty envelopes on 404)
   btp: (command: string, action: string, params: Record<string, unknown>) => Promise<unknown>; // btp CLI-server command
+}
+
+// Validate a write's free-text arg (service/instance names): conservative charset, no injection surface.
+function asName(ctx: ActionCtx, field: string): string {
+  const v = String(ctx.args[field] ?? '');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(v)) {
+    throw new Error(`'${field}' must be 1-64 chars of letters/digits/._- (got '${v.slice(0, 40)}')`);
+  }
+  return v;
 }
 
 export interface ActionDef {
@@ -31,7 +41,7 @@ export interface ActionDef {
   idempotent?: boolean; // write annotation: repeating is safe (stop/start/delete)
   params?: string[]; // input params this action reads (for the schema + docs)
   summary: string; // one clause for the tool description
-  run?: (ctx: ActionCtx) => Promise<unknown>; // reads only; writes are inert until implemented (dispatch)
+  run?: (ctx: ActionCtx) => Promise<unknown>; // the action body; for writes the allowlist gate runs FIRST in the handler
 }
 
 // ─── Cloud Foundry (Cloud Controller v3) ─────────────────────────────────────────────────────────
@@ -284,6 +294,8 @@ const CF: ActionDef[] = [
     // MUST filter by the org guid — the unfiltered organization_quotas catalog is tens of thousands of rows.
     run: (c) => c.cf(`/v3/organization_quotas?organization_guids=${c.guid('guid')}`),
   },
+  // CFApps write runs assume the space-allowlist gate ALREADY ran in the handler (runCfWrite resolves the
+  // app's REAL space server-side — the LLM never supplies the gated value). They only do the action POST.
   {
     tool: 'CFApps',
     action: 'restart',
@@ -293,8 +305,10 @@ const CF: ActionDef[] = [
     backend: 'cf',
     destructive: false,
     idempotent: false,
-    params: ['space'],
-    summary: "'restart' an app (write, NOT YET IMPLEMENTED)",
+    params: ['guid'],
+    summary:
+      "'restart' an app — brief downtime while it bounces (REQUIRES 'guid'; the app's space must be allowlisted)",
+    run: async (c) => cfAppActionResult(await c.cfPost(`/v3/apps/${c.guid('guid')}/actions/restart`), 'restart'),
   },
   {
     tool: 'CFApps',
@@ -305,8 +319,9 @@ const CF: ActionDef[] = [
     backend: 'cf',
     destructive: false,
     idempotent: true,
-    params: ['space'],
-    summary: "'stop' an app (write, NOT YET IMPLEMENTED)",
+    params: ['guid'],
+    summary: "'stop' an app — it stays down until started (REQUIRES 'guid'; space must be allowlisted)",
+    run: async (c) => cfAppActionResult(await c.cfPost(`/v3/apps/${c.guid('guid')}/actions/stop`), 'stop'),
   },
   {
     tool: 'CFApps',
@@ -317,10 +332,21 @@ const CF: ActionDef[] = [
     backend: 'cf',
     destructive: false,
     idempotent: true,
-    params: ['space'],
-    summary: "'start' an app (write, NOT YET IMPLEMENTED)",
+    params: ['guid'],
+    summary: "'start' a stopped app (REQUIRES 'guid'; space must be allowlisted)",
+    run: async (c) => cfAppActionResult(await c.cfPost(`/v3/apps/${c.guid('guid')}/actions/start`), 'start'),
   },
 ];
+
+// Write result contract: the new/changed resource's identity + state + the read to verify with.
+function cfAppActionResult(raw: unknown, action: string): unknown {
+  const app = raw as { guid?: string; name?: string; state?: string; updated_at?: string };
+  return {
+    action,
+    app: pick(app as Record<string, unknown>, ['guid', 'name', 'state', 'updated_at']),
+    _next: "Verify instance health with CFInspect action='app_processes' (state RUNNING per instance).",
+  };
+}
 
 // The GA entitlement catalog is ~6.5 MB (per-plan iconBase64 + dataCenters + sourceEntitlements) — far too
 // big for an LLM context. Project to the fields that answer "which plans + how much quota" (~98% smaller).
@@ -528,6 +554,10 @@ const BTP: ActionDef[] = [
     summary: "'service_plans' = plans available in the subaccount (map entitlements → concrete plans)",
     run: async (c) => compactBtpList(await c.btp('services/plan', 'list', { subaccount: c.sub() })),
   },
+  // BTPServices write runs assume the subaccount-allowlist gate ALREADY ran in the handler (dispatch gates
+  // the SAME resolved subaccount that c.sub() returns). Wire format live-captured from `btp --verbose`:
+  // create → services/instance?create {name, offeringName, planName, subaccount}
+  // delete → services/instance?delete {confirm:"true", instanceID, subaccount}
   {
     tool: 'BTPServices',
     action: 'create_service',
@@ -538,7 +568,21 @@ const BTP: ActionDef[] = [
     destructive: false,
     idempotent: false,
     params: ['subaccount', 'name', 'offering', 'plan'],
-    summary: "'create_service' a service instance (write, REQUIRES name+offering+plan, NOT YET IMPLEMENTED)",
+    summary:
+      "'create_service' = create a Service Manager instance (REQUIRES name + offering + plan; subaccount must be allowlisted)",
+    run: async (c) => {
+      const res = await c.btp('services/instance', 'create', {
+        subaccount: c.sub(),
+        name: asName(c, 'name'),
+        offeringName: asName(c, 'offering'),
+        planName: asName(c, 'plan'),
+      });
+      return {
+        created: res,
+        _next:
+          "Provisioning may be asynchronous — check state with BTPInspect action='service_instances' (look for last operation succeeded/in progress).",
+      };
+    },
   },
   {
     tool: 'BTPServices',
@@ -550,7 +594,20 @@ const BTP: ActionDef[] = [
     destructive: true,
     idempotent: true,
     params: ['subaccount', 'instanceId'],
-    summary: "'delete_service' (write, REQUIRES instanceId, DESTRUCTIVE, NOT YET IMPLEMENTED)",
+    summary:
+      "'delete_service' = DELETE a Service Manager instance — DESTRUCTIVE, unbinds nothing first (REQUIRES 'instanceId'; subaccount must be allowlisted)",
+    run: async (c) => {
+      const res = await c.btp('services/instance', 'delete', {
+        subaccount: c.sub(),
+        instanceID: c.guid('instanceId'),
+        confirm: 'true',
+      });
+      return {
+        deleted: res ?? true,
+        _next:
+          "Deletion may be asynchronous — confirm with BTPInspect action='service_instances' (the instance should disappear).",
+      };
+    },
   },
 ];
 

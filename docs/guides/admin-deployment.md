@@ -10,10 +10,10 @@ How to deploy and configure the btp-cf-mcp server on SAP BTP Cloud Foundry, wire
 > subaccount. A **shared-technical** mode (XSUAA or API-key inbound + a shared CIS key) still exists as
 > a fallback for setups without IAS — see §12.
 >
-> Still a PoC in one respect: writes (`create_service`/`delete_service`, CF lifecycle) are **inert** —
-> they pass the safety gate but don't execute. The OAuth proxy's DCR is guarded by a signed,
-> browser-bound **consent screen** (§11); for exposure to untrusted clients, also tighten the DCR
-> redirect-URI allowlist.
+> Writes (`create_service`/`delete_service`, CF restart/stop/start) **execute** when `ALLOW_WRITES=true`,
+> gated by fail-closed target allowlists — CF writes gate on the app's **server-resolved** space, never a
+> caller-supplied value. The OAuth proxy's DCR is guarded by a signed, browser-bound **consent screen**
+> (§11); for exposure to untrusted clients, also tighten the DCR redirect-URI allowlist.
 
 ---
 
@@ -233,7 +233,7 @@ read-only user.
 | XSUAA (bound) | — | if no IAS config, inbound falls back to XSUAA OAuth via `@arc-mcp/xsuaa-auth` (§12) |
 | `ALLOW_OPEN` | `false` | `true` permits unauthenticated **read-only** access (dev only) — fail-closed by default |
 | **Safety** | | |
-| `ALLOW_WRITES` | `false` | enable mutations (prerequisite for any write; writes are still inert in this PoC) |
+| `ALLOW_WRITES` | `false` | enable mutations — writes EXECUTE when true (CF app lifecycle + service create/delete), gated by the target allowlists below |
 | `ALLOWED_SUBACCOUNTS` / `ALLOWED_ORGS` / `ALLOWED_SPACES` | — | fail-closed write-target allowlists |
 | `DENY_ACTIONS` | — | CSV of `Tool.action` / `Tool.*` / `Tool` to refuse (e.g. `BTPServices.delete_service`) |
 | **Shared CF backend (api-key / headless path)** | | *per-user OAuth callers mint their own CF token; this is only the shared fallback* |
@@ -286,7 +286,8 @@ the MCP client.
 | **401 Unauthorized** on `/mcp` | Missing/expired token | Re-login (the sealed token has a ~30-min TTL); or pass `Bearer <key>` |
 | A tool reports **"backend unavailable"** | Fallback path with no shared backend configured | Set `CIS_SERVICE_KEY` / `CF_API`+`CF_TOKEN`, or use the per-user (IAS) path |
 | App **deleted or `cf` re-targets** mid-deploy | Background automation on the account re-targeting `cf` | Deploy in an isolated `CF_HOME` and chain push+set-env+restage in one invocation |
-| Writes "succeed" but **nothing changes** | PoC: `create_service`/`delete_service` + CF lifecycle are **inert** | Expected; real writes are future work |
+| A write returns **403** for an api-key caller | The shared technical user is read-only by design | Use per-user OAuth (the user needs Subaccount/Service Administrator), or accept reads-only for api-key callers |
+| A CF write is refused with "**not in the allowlist**" naming a space you didn't pass | Correct behavior — the server resolves the app's REAL space and gates that | Add the app's space GUID to `ALLOWED_SPACES` if the write is intended |
 
 ## 11. Caveats & known limitations
 
@@ -308,9 +309,11 @@ the MCP client.
 - **Consent gate is per-authorization.** DCR is guarded by a signed, browser-bound consent screen (a
   relayed victim's cookieless callback is rejected). For untrusted exposure, also tighten the DCR
   redirect-URI allowlist as defence-in-depth.
-- **Writes are inert** — `create/delete_service` + CF lifecycle pass the gate but don't execute (read-only
-  positioning). Access tokens live ~30 min; a **refresh token** is issued when IAS grants one, else the
-  client re-authenticates.
+- **Writes execute as the acting identity** — the shared technical user is read-only by design, so
+  api-key-driven writes get an SAP 403; per-user (OAuth) callers need Subaccount/Service Administrator on
+  the target subaccount. Service create/delete may complete **asynchronously** — verify with
+  `BTPInspect.service_instances`. Access tokens live ~30 min; a **refresh token** is issued when IAS
+  grants one, else the client re-authenticates.
 - **Rotate secrets.** `IAS_CLIENT_SECRET` (IAS console) + the tech-user password are the crown jewels;
   rotate `SEALING_SECRET` gracefully via `SEALING_SECRET_PREVIOUS` (§7) — no mass re-login.
 
@@ -326,7 +329,7 @@ outbound:
   `{"grantType":"clientCredentials"}`, **not** `cf create-service` (which yields a `user_token` grant →
   HTTP 502 "Communication error with XSUAA", code 42008). Even then, a `local`-plan key can read only
   `environments`.
-- Set `CF_API` + a `CF_TOKEN` bearer for `CFInspect` (writes inert).
+- Set `CF_API` + a `CF_TOKEN` bearer for `CFInspect` (note: a shared CF token also enables `CFApps` writes if `ALLOW_WRITES=true` — keep writes off on shared-token deploys).
 
 ## 13. References
 - [per-user-ias-auth-setup.md](per-user-ias-auth-setup.md) — the IAS one-time setup (proven recipe) + CF/BTP legs

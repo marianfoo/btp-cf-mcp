@@ -7,7 +7,8 @@ no shared technical password, no second login. A shared **read-only technical us
 available for headless/automation callers.
 
 > Status: a working **proof-of-concept**, read-only by default. Reads are live-verified on a free-tier
-> BTP account; writes are gated but intentionally inert. See [Status](#status).
+> BTP account; writes (app lifecycle, service create/delete) execute only when explicitly enabled and
+> only against allowlisted targets. See [Status](#status).
 
 ---
 
@@ -34,7 +35,7 @@ auto-approve, no confirm friction), and a read-only deployment renders **only** 
 | **`CFInspect`** (read) | `orgs`, `spaces`, `apps`, `services`, `routes`, `app_detail`, `app_processes` | Cloud Controller v3; as the user or a shared CF token. `app_processes` = instance health/state |
 | **`BTPInspect`** (read) | `subaccount`, `subaccounts`, `global_account`, `environments`, `entitlements`, `subscriptions` | `entitlements` = global-account catalog, or a subaccount's plan assignments if you pass a subaccount |
 | **`whoami`** | — | diagnostic: resolved scopes + token claims |
-| `CFApps` / `BTPServices` (write) | app lifecycle · service instances | grouped by blast-radius; hidden by default; **not yet implemented** |
+| `CFApps` / `BTPServices` (write) | restart/stop/start an app · create/delete service instances | hidden unless `ALLOW_WRITES=true`; targets must be allowlisted — CFApps resolves the app's **real** space server-side |
 
 A deliberately small surface (fewer tools select more accurately). Every action is defined once in a
 **single-source registry** (`src/registry.ts`); the schema, scopes, MCP annotations, and dispatch all
@@ -120,8 +121,12 @@ that make reads return data, troubleshooting, caveats): [docs/guides/admin-deplo
 
 - ✅ Read/write-split tool surface (`CFInspect`/`BTPInspect` + write tools) with honest MCP annotations.
 
+- ✅ Writes: CF app lifecycle (restart/stop/start) + Service Manager create/delete — off by default,
+  fail-closed target allowlists, and CFApps gates on the app's **server-resolved** space (never a
+  caller-supplied value).
+
 **PoC boundaries:**
-- ⏳ Writes are **not yet implemented** (they pass the gate but don't execute) — read-only positioning.
+- ⏳ Async job polling for service create/delete is manual (verify via `BTPInspect.service_instances`).
 - ⏳ Mapping IAS groups → scopes and an MTA-only deploy are future work.
 
 ## Documentation
