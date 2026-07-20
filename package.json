@@ -42,7 +42,7 @@
     "*.{ts,js,json}": "biome check --write --no-errors-on-unmatched"
   },
   "dependencies": {
-    "@arc-mcp/xsuaa-auth": "^0.1.4",
+    "@arc-mcp/xsuaa-auth": "^0.1.6",
     "@modelcontextprotocol/sdk": "^1.18.2",
     "express": "^5.0.1",
     "jose": "^6.0.0"
