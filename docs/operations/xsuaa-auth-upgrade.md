@@ -28,8 +28,9 @@ a local-development example; change its port explicitly if needed.
 The default MTA is IAS-first and does not create an XSUAA service. The XSUAA instructions above
 apply only when using the XSUAA path. IAS retains its existing consent guard, raw upstream code
 exchange and sealed MCP tokens through a dedicated callback adapter. Its existing trusted
-redirect/consent policy is unchanged; this dependency upgrade is not a security review or
-remediation of that separate IAS policy. No role, write ceiling or outbound identity changes
+redirect/consent policy is unchanged; this dependency upgrade is not a remediation of that separate IAS policy. The legacy IAS guard does not bind
+explicit approval to the particular authorization request; request-bound IAS approval
+remains a separate hardening task. No role, write ceiling or outbound identity changes
 are introduced.
 
 ### Before completing a production rollout

@@ -12,8 +12,9 @@ How to deploy and configure the btp-cf-mcp server on SAP BTP Cloud Foundry, wire
 >
 > Writes (`create_service`/`delete_service`, CF restart/stop/start) **execute** when `ALLOW_WRITES=true`,
 > gated by fail-closed target allowlists — CF writes gate on the app's **server-resolved** space, never a
-> caller-supplied value. The OAuth proxy's DCR is guarded by a signed, browser-bound **consent screen**
-> (§11); for exposure to untrusted clients, also tighten the DCR redirect-URI allowlist.
+> caller-supplied value. The IAS proxy has a consent page and a browser cookie guard (§11). That legacy guard
+> does not bind explicit approval to each authorization request. See the
+> [upgrade guide](../operations/xsuaa-auth-upgrade.md) for the separate IAS limitation.
 
 ---
 
@@ -307,9 +308,10 @@ the MCP client.
 - **CIS REST is not per-user** (SAP platform limitation, proven). The shared-CIS fallback exists only for
   setups without IAS, and its `local`-plan key can read **only** `environments` (subaccount/entitlements
   return 401 — central-plane APIs the local key can't reach). Per-user via the CLI server (§2) is the way.
-- **Consent gate is per-authorization.** DCR is guarded by a signed, browser-bound consent screen (a
-  relayed victim's cookieless callback is rejected). For untrusted exposure, also tighten the DCR
-  redirect-URI allowlist as defence-in-depth.
+- **IAS consent limitation.** The legacy guard checks a browser cookie but does not bind an
+  explicit approval action to the particular authorization request. Trusted redirects can also
+  bypass that page. This is separate from the corrected XSUAA flow; request-bound IAS approval
+  remains follow-up hardening. A redirect allowlist does not establish client consent.
 - **Writes are per-user only** — api-key/shared-identity callers are refused at the MCP layer (a shared
   identity would make mutations unattributable). Per-user (OAuth) callers need Subaccount/Service
   Administrator on the target subaccount for service writes. Service create/delete may complete
@@ -322,8 +324,9 @@ the MCP client.
 
 If you cannot set up IAS, the server still runs with **XSUAA or API-key inbound** and **shared-technical**
 outbound:
-- Omit the IAS vars → inbound falls back to XSUAA OAuth (bind an `xsuaa` instance created from
-  `xs-security.json`) + API key. Assign the `btp-cf-mcp` role collection **under the same IdP origin your
+- Omit the IAS vars → inbound falls back to XSUAA OAuth + API key. Before creating/updating the
+  bound `xsuaa` instance, replace the localhost example in `xs-security.json` with this server's
+  exact public `/oauth/callback` (see the [upgrade guide](../operations/xsuaa-auth-upgrade.md)). Assign the `btp-cf-mcp` role collection **under the same IdP origin your
   login uses** (the classic empty-tool-list gotcha).
 - Omit `BTP_GA_SUBDOMAIN` → `BTPInspect` uses a shared **CIS** `client_credentials` key. **Gotcha
   (live-proven):** create the `cis` `local` instance via the **btp CLI / Service Manager** with

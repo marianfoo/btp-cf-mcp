@@ -15,7 +15,7 @@ The make-or-break path (plan §4): **pre-registered client → IAS login → ser
 3. ✅ **BTPAccount per-user — LIVE on a FREE subaccount** via `btpcli-http.ts` + `runBtpPerUser` (2026-07-01). `subaccount get`, `environment-instance list`, `subaccount list`, and GA-level `entitlements` — all as the user. Entitlements needs **Global Account Viewer** on the platform shadow user (subaccount-scoped entitlements needs a subaccount role, not wired). See [../guides/per-user-ias-auth-setup.md](../guides/per-user-ias-auth-setup.md) §6.1.
 
 ## Shipped since (pre-publish hardening, 2026-07-01)
-- ✅ **Per-authorization consent gate** (cookie-bound, non-bypassable) — the confused-deputy blocker.
+- **Legacy IAS consent page and cookie guard.** This does not establish explicit approval for each authorization request; request-bound approval remains open. See [the upgrade guide](xsuaa-auth-upgrade.md).
 - ✅ Session cache · sealing-key rotation (`SEALING_SECRET_PREVIOUS`) · refresh-token rotation · subaccount-scoped entitlements · MTA descriptor.
 
 ## Next increments (still open)

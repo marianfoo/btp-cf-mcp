@@ -1,10 +1,11 @@
 # Inbound IAS OAuth Proxy — Detailed Plan (ADR-007/009/017)
 
 > **Status (this is the design record):** SHIPPED + live-verified — the OAuth proxy, sealed-JWE token,
-> the **per-authorization consent gate** (cookie-bound, non-bypassable), refresh-token rotation, and
+> the legacy **consent page and cookie guard**, refresh-token rotation, and
 > sealing-key rotation are all implemented. This doc keeps the original planning/decisions; for current
 > behavior see the [guides](../guides/admin-deployment.md). (The "consent gate = increment 2 / deferred"
-> notes below are historical.)
+> notes below are historical.) The legacy IAS guard does not establish request-bound explicit
+> approval; that hardening remains open and is separate from the XSUAA 1.2.0 fix.
 
 **Goal of the first increment:** an MCP client (Inspector/Claude) discovers the server's OAuth metadata, logs the user in **via IAS**, and a CF read tool then runs **as that IAS user** — closing the loop from the proven outbound chain to a real inbound login.
 
