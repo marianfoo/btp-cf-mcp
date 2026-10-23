@@ -31,6 +31,7 @@ Start here if you are navigating the repo docs. Future docs must follow
 
 | Doc | What it is | Read it when |
 |---|---|---|
+| [operations/xsuaa-auth-upgrade.md](operations/xsuaa-auth-upgrade.md) | XSUAA 1.2.0 rollout and IAS compatibility boundaries. | Upgrading authentication |
 | [operations/live-chain-runbook.md](operations/live-chain-runbook.md) | Live test plan for the per-user outbound chain. | Running the real IAS -> CF/BTP proof |
 | [operations/per-user-spike-notes.md](operations/per-user-spike-notes.md) | Current status of per-user spike modules and next increments. | Continuing the spike or interpreting live-run results |
 
