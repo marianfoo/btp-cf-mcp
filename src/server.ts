@@ -4,7 +4,6 @@ import {
   type ApiKeyEntry,
   type AuthOptions,
   createChainedTokenVerifier,
-  createOAuthCallbackHandler,
   noopLogger,
   setupHttpAuth,
 } from '@arc-mcp/xsuaa-auth';
@@ -14,6 +13,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
+import { createIasOAuthCallbackHandler } from './auth/ias-oauth-callback.js';
 import { createIasOAuthProvider } from './auth/ias-oauth-provider.js';
 import { keyFromSecret } from './auth/sealed-credential.js';
 import { createSealedJweVerifier } from './auth/sealed-verifier.js';
@@ -123,12 +123,12 @@ function buildServer(config: AppConfig, clients: Clients): Server {
   return server;
 }
 
-export function startHttp(
+export function createHttpApp(
   config: AppConfig,
   clients: Clients,
   xsuaa: AuthOptions['xsuaa'] | undefined,
   log: (m: string) => void,
-): void {
+): express.Application {
   const app = express();
   app.use(express.json());
 
@@ -168,11 +168,7 @@ export function startHttp(
       }),
     );
     // consentGuard: reject a callback whose browser never passed the /authorize consent page (confused-deputy).
-    app.get(
-      '/oauth/callback',
-      consentGuard,
-      createOAuthCallbackHandler(stateCodec, clientStore, { logger: noopLogger }),
-    );
+    app.get('/oauth/callback', createIasOAuthCallbackHandler(stateCodec, clientStore, consentGuard));
     const chained = createChainedTokenVerifier({ apiKeys }, createSealedJweVerifier(verifyKeys, audience), undefined, {
       expandScopes: (s: string[]) => expandScopes(s),
     });
@@ -205,7 +201,16 @@ export function startHttp(
   if (bearer) app.all('/mcp', bearer, mcp);
   else app.all('/mcp', mcp);
 
-  app.listen(config.port, '0.0.0.0', () =>
+  return app;
+}
+
+export function startHttp(
+  config: AppConfig,
+  clients: Clients,
+  xsuaa: AuthOptions['xsuaa'] | undefined,
+  log: (m: string) => void,
+): void {
+  createHttpApp(config, clients, xsuaa, log).listen(config.port, '0.0.0.0', () =>
     log(
       `btp-cf-mcp v${VERSION} listening on :${config.port} (writes=${config.safety.allowWrites}, open=${config.allowOpen})`,
     ),

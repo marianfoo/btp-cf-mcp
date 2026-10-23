@@ -1,5 +1,7 @@
 # btp-cf-mcp
 
+> Upgrading an XSUAA deployment? Read the [OAuth upgrade guide](docs/operations/xsuaa-auth-upgrade.md) before redeploying.
+
 **An MCP server that lets an AI assistant inspect and manage your SAP BTP account and Cloud Foundry —
 as *you*.** A user signs in once via IAS; the server then calls the BTP and Cloud Foundry APIs under
 that person's own identity, so their real roles are enforced and the audit trail shows the real human —

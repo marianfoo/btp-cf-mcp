@@ -19,6 +19,6 @@
   "oauth2-configuration": {
     "token-validity": 3600,
     "refresh-token-validity": 2592000,
-    "redirect-uris": ["https://btp-cf-mcp-dev.cfapps.us10-001.hana.ondemand.com/**", "http://localhost:*/**"]
+    "redirect-uris": ["http://localhost:8080/oauth/callback"]
   }
 }
